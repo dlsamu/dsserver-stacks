@@ -1,0 +1,80 @@
+#!/bin/bash
+# Create a service's persistent data directories under /srv/appdata, as listed in <stack>/appdata.dirs.
+# Usage:  sudo /srv/stacks/host/bin/appdata-init <stack>
+#
+# appdata.dirs format (one per line; '#' comments allowed):
+#   <relative path>  <uid>  <gid>  <octal mode>
+#   data             2001   2001   0750
+#
+# Behaviour:
+#   - creates /srv/appdata (root:root 0700) and /srv/appdata/<stack> (root:root 0755) if missing
+#   - creates each listed directory with exactly the given owner and mode
+#   - an EXISTING directory is only compared, never changed (no chown/chmod, never recursive)
+#   - exits non-zero if any existing directory differs from the spec, or if the spec is invalid
+# APPDATA_ROOT may be set to test against a scratch directory (no root needed there).
+set -euo pipefail
+
+ROOT=${APPDATA_ROOT:-/srv/appdata}
+STACKS=$(cd "$(dirname "$0")/../.." && pwd)
+
+die() { echo "appdata-init: $*" >&2; exit 2; }
+
+[ $# -eq 1 ] || die "usage: appdata-init <stack>"
+S=$1
+[[ $S =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "invalid stack name '$S' (allowed: a-z 0-9 -)"
+case "$S" in host|templates) die "'$S' is reserved, not a stack";; esac
+SPEC="$STACKS/$S/appdata.dirs"
+[ -f "$SPEC" ] || die "no spec file: $SPEC"
+if [ -z "${APPDATA_ROOT:-}" ] && [ "$(id -u)" != 0 ]; then die "run with sudo"; fi
+
+# Validate the whole spec before touching anything.
+declare -a P U G M
+n=0; lineno=0
+while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno+1))
+    line=${line%%#*}
+    read -r path uid gid mode extra <<<"$line" || true
+    [ -z "${path:-}" ] && continue
+    [ -z "${extra:-}" ] || die "$SPEC:$lineno: too many fields"
+    [[ $path =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] || die "$SPEC:$lineno: invalid path '$path'"
+    [[ /$path/ != */../* && /$path/ != */./* ]] || die "$SPEC:$lineno: '.' or '..' not allowed in '$path'"
+    [[ ${uid:-} =~ ^[0-9]+$ && ${gid:-} =~ ^[0-9]+$ ]] || die "$SPEC:$lineno: uid/gid must be numeric"
+    [[ ${mode:-} =~ ^0?[0-7]{3}$ ]] || die "$SPEC:$lineno: mode must be octal like 0750"
+    P[n]=$path; U[n]=$uid; G[n]=$gid; M[n]=$mode; n=$((n+1))
+done < "$SPEC"
+[ "$n" -gt 0 ] || die "$SPEC lists no directories"
+
+# Every nested path's parent must be listed earlier or already exist, checked before anything is created.
+for ((i=0; i<n; i++)); do
+    parent=$(dirname "${P[i]}")
+    [ "$parent" = . ] && continue
+    found=no
+    for ((j=0; j<i; j++)); do [ "${P[j]}" = "$parent" ] && found=yes; done
+    [ "$found" = yes ] || [ -d "$ROOT/$S/$parent" ] || die "$SPEC: parent '$parent' of '${P[i]}' must be listed before it"
+done
+
+ensure_root_dir() {   # path mode: create root-owned dir if missing, otherwise leave it alone
+    if [ ! -e "$1" ]; then
+        if [ -z "${APPDATA_ROOT:-}" ]; then install -d -o root -g root -m "$2" "$1"; else install -d -m "$2" "$1"; fi
+        echo "created $1"
+    fi
+}
+ensure_root_dir "$ROOT" 0700
+ensure_root_dir "$ROOT/$S" 0755
+
+rc=0
+for ((i=0; i<n; i++)); do
+    d="$ROOT/$S/${P[i]}"
+    want="${U[i]} ${G[i]} $(printf '%o' "$((8#${M[i]}))")"
+    if [ -e "$d" ] || [ -L "$d" ]; then
+        [ -d "$d" ] && [ ! -L "$d" ] || { echo "NOT-DIR  $d (exists but is not a plain directory) - not changed"; rc=1; continue; }
+        cur=$(stat -c '%u %g %a' "$d")
+        if [ "$cur" = "$want" ]; then echo "ok       $d ($cur)"; else echo "DIFFERS  $d is '$cur', spec '$want' - not changed"; rc=1; fi
+    else
+        parent=$(dirname "$d")
+        [ -d "$parent" ] || die "parent $parent missing: list parent directories before children in $SPEC"
+        install -d -o "${U[i]}" -g "${G[i]}" -m "${M[i]}" "$d"
+        echo "created  $d ($want)"
+    fi
+done
+exit $rc

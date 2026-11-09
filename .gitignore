@@ -1,0 +1,9 @@
+# Secrets and per-host values: never committed (they're covered by the encrypted backup instead)
+**/.env
+**/.env.*
+!**/.env.example
+**/secrets/
+
+# Output from the host scripts when run inside the repo (logs, port snapshots)
+host/scripts/*.log
+host/scripts/ports-*.txt

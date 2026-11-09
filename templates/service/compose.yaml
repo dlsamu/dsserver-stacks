@@ -1,0 +1,28 @@
+# example: <one-line purpose>. See README.md in this directory.
+# Copy this directory to /srv/stacks/<name>/ and replace every "example" and <placeholder>.
+name: example                                   # = directory name = /srv/appdata/<name>
+
+services:
+  app:
+    # Exact version AND digest; never :latest. Digest: docker buildx imagetools inspect <image>:<tag>
+    image: docker.io/<org>/<image>:<exact-version>@sha256:<digest>
+    restart: unless-stopped                     # returns after reboot/crash; stays down after "compose stop"
+    user: "2001:2001"                           # uid:gid from the README registry; must match appdata.dirs
+    env_file: [.env]                            # real values, git-ignored; documented in .env.example
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - type: bind
+        source: /srv/appdata/example/data
+        target: /data
+        bind:
+          create_host_path: false               # fail if missing instead of creating a root-owned dir
+    healthcheck:                                # a command that exists inside the image (or drop this
+      test: ["CMD", "<binary>", "<args>"]      #   block if the image defines its own HEALTHCHECK)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    # depends_on:                               # multi-container services: wait for a healthy dependency
+    #   db: { condition: service_healthy }
+    # ports: none by default. If ever needed, never hard-code the host address:
+    #   - "${PUBLISH_ADDR:-127.0.0.1}:<host-port>:<container-port>"

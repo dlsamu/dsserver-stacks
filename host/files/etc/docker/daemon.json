@@ -1,0 +1,4 @@
+{
+  "firewall-backend": "iptables",
+  "log-driver": "local"
+}

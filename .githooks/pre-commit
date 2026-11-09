@@ -1,0 +1,20 @@
+#!/bin/sh
+# Refuse to commit env files, secrets directories or private keys, even when force-added (git add -f).
+# Enabled per repository with: git config core.hooksPath .githooks
+files=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$files" ] && exit 0
+
+bad=$(printf '%s\n' "$files" | grep -E '(^|/)(\.env(\.[^/]*)?$|secrets/)' | grep -vE '(^|/)\.env\.example$')
+if [ -n "$bad" ]; then
+    echo "pre-commit: refusing to commit secret files:" >&2
+    printf '  %s\n' $bad >&2
+    exit 1
+fi
+
+keys=$(git diff --cached --diff-filter=ACMR -G'-----BEGIN [A-Z ]*PRIVATE KEY-----' --name-only)
+if [ -n "$keys" ]; then
+    echo "pre-commit: refusing to commit private key material in:" >&2
+    printf '  %s\n' $keys >&2
+    exit 1
+fi
+exit 0

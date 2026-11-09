@@ -1,0 +1,4 @@
+# Persistent directories for this service under /srv/appdata/<name>/
+# Created by: sudo /srv/stacks/host/bin/appdata-init <name>
+# path    uid   gid   mode
+data      2001  2001  0750
