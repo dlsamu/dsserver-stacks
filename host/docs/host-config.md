@@ -123,7 +123,7 @@ Installed from Docker's official Debian 13 repository with the reviewed script (
 - The `docker0` bridge is 172.17.0.1/16 and down (no containers), so it doesn't clash with the 192.168.68.0/24 LAN.
 - `net.ipv4.ip_forward=1`. Docker sets this, along with an iptables `FORWARD` policy of DROP.
 - **No new listening ports** compared with the pre-install baseline. No containers or images exist; the hello-world image was removed after the test.
-- `nftables.service` is still **disabled**. Never enable it with the stock `flush ruleset` config; see section 4.
+- `nftables.service` is still **disabled**. Never enable it with the stock `flush ruleset` config; see section 8.
 - No firewall rules have been added. No users were added to the `docker` group.
 
 ### Rollback
@@ -233,11 +233,80 @@ Problem fixed on the way: the deploy key was rejected at 19:40 because it hadn't
 
 ---
 
-## 6. Facts that matter for later phases
+## 6. `/srv/stacks` and `/srv/appdata` (Phase S, 2026-11-09)
 
-- **The `nftables` package is installed** (nft 1.1.3), but `nftables.service` is **disabled and inactive**. The earlier recon wrongly reported nft as missing; it is in `/usr/sbin`, which isn't on the user PATH.
+### Layout and permissions
+| Path | Owner / mode | Purpose |
+|---|---|---|
+| `/srv/stacks` | daniel:daniel **0750** | This Git repository. Commit as daniel, never with sudo. Directories inside are 0775 and files 0664 (daniel's umask); the 0750 parent keeps everyone else out, and group `daniel` has no members |
+| `/srv/appdata` | root:root **0700** | Persistent container data, not in Git. Each service's directories are created by `host/bin/appdata-init` |
+
+**Permission model, proven by the S1 probe:** a container running as uid 2001 could write through a bind mount to `/srv/appdata/_probe/data` (2001:2001 0750), even though `/srv/appdata` is 0700. The host showed the file as `2001:2001`. A container running as uid **2002 was refused**. So directory ownership is what grants access, and the 0700 parent doesn't get in the way. Probe image: `alpine:3.24.4@sha256:f59abe65…71bf`, run with `--network none --read-only` and removed afterwards along with the probe directory.
+
+### Steps
+| Step | When | How | Result |
+|---|---|---|---|
+| S1 | 20:13:02–04 | `phaseS-root.sh` (sudo, sha256 `a2551a6e…f04f31`) | Directories created, probe passed, cleanup verified, axel denied on both directories. For recovery it has been replaced by the idempotent `host/scripts/06-srv-dirs.sh` (S4a) |
+| S2 | 20:14:31 | `phaseS-repo.sh` (daniel, sha256 `a944292c…908ffc`) | Host-file copies checked against the live files, repo-level identity set, hooks path set, first commit **`5c6117d7aeb6094660acc95d19e50fad0f326aeb`** (24 files) |
+| S3 | 2026-11-09 | `git push -u origin main` with the deploy key | Remote `refs/heads/main` = `5c6117d…`. A fresh clone over the deploy key has the same commit and tree (`d2adab7`) and exactly 24 files, with modes and blob hashes identical to the local copy. Local working tree clean, tracking `origin/main` |
+
+Repository settings (local only): `user.name=Daniel Samuelsson`, `user.email=ahdanielsamuelsson@gmail.com`, `core.hooksPath=.githooks`, `origin=git@github-stacks:dlsamu/dsserver-stacks.git`. There is still no global Git identity.
+
+Pre-push checks: a scan of every tracked file for private-key blocks, GitHub/AWS/Slack tokens and credential assignments (password, secret, token or API key followed by `=` or `:` and a value) found nothing; the scan was confirmed to catch a planted key. No `.env` file except `templates/service/.env.example`. Neither private key's contents appear anywhere. The only key material is GitHub's public host key.
+
+### Incident: `/srv/stacks` was world-readable for about one minute
+- **What happened:** step 1 of `phaseS-repo.sh` ran `cp -a "$STAGE/." "/srv/stacks/"`. Copying `SRC/.` also applies the source directory's **own** mode to the target, so `/srv/stacks` changed from the approved **0750** to **0775** (others: r-x).
+- **When:** about 20:14:30 to 20:15:20, found by the pre-S3 checks. Fixed with `chmod 0750 /srv/stacks` (daniel owns it, so no sudo was needed). That restored the approved S1 state, and the user was told.
+- **Exposure:** while the mode was 0775, any local user could **read** (not write) the repository. axel was logged in at the time (from 18:53), and there's no way to tell whether he read it. The content had no secrets (scanned).
+- **Script retired:** `phaseS-repo.sh` now starts with a guard that exits 1 ("retired after a permissions defect"), with the defect and a corrected pattern described in its header. It also can't succeed again anyway, because its pre-flight requires an empty `/srv/stacks` and an empty remote. **It is not in the repository. A rebuild uses `git clone`** (RECOVERY.md §2), which creates a fresh directory.
+- **Corrected pattern, for any future copy into a protected directory:** copy the entries, not `dir/.`, and then enforce and verify the mode as the **last** step:
+  `(shopt -s dotglob nullglob; cp -a -- "$SRC"/* "$DST"/) && chmod 0750 "$DST" && [ "$(stat -c %a "$DST")" = 750 ]`.
+  Tested: the target stays 750; the old pattern produces 775.
+- **Lesson:** check permissions after every step that writes into a protected directory, not only before it.
+
+### Recovery script: `host/scripts/06-srv-dirs.sh` (added in S4a)
+Idempotent. Run with `sudo bash 06-srv-dirs.sh [--no-probe]` from a copy outside the repo.
+- **Missing** `/srv/appdata` or `/srv/stacks` are created (root:root 0700 and daniel:daniel 0750).
+- **Existing** ones are only checked. A wrong owner or permission, a symlink or a plain file is reported and the script exits 1; it never changes ownership, permissions or contents.
+- **Probe**, unless `--no-probe`: the uid 2001/2002 bind-mount test from S1. It refuses to run if `/srv/appdata/_probe` already exists, removes only what it created, and removes the probe image only if it wasn't there before.
+- **Isolation:** every login user who isn't in `sudo` (currently axel) must be refused a listing of both directories.
+- **Tested in test mode** (`SRV_ROOT=<scratch>`; skips ownership changes, the probe and the isolation check): created on the first run; no-op on the second, with contents untouched; a 0775 directory was reported with exit 1 and left at 0775; a symlink or file in place was refused; bad arguments exit 2; it refuses to run without sudo outside test mode. The probe and isolation steps reuse the commands that passed in S1. **They have not yet been run as root through this script.**
+
+### Rollback
+```bash
+sudo rm -rf /srv/stacks && sudo rmdir /srv/appdata      # /srv/appdata must be empty
+# GitHub: delete the main branch, or delete and recreate the empty repo (then re-add the deploy key)
+```
+
+---
+
+## 7. Problems encountered, corrections and lessons (2026-11-09)
+
+Raw run logs aren't kept in Git. This section records what they showed.
+
+| # | Phase | Problem | Correction | Lesson |
+|---|---|---|---|---|
+| 1 | Recon | Reported "no nftables / nft"; the package **is** installed (`/usr/sbin` isn't on the user PATH) | Corrected in §8 facts. `nftables.service` is disabled, and its default config would `flush ruleset` | Check packages with `dpkg-query`, not just `command -v` |
+| 2 | Docker plan | `gpg --show-keys` as daniel created an empty `~/.gnupg` (pubring, trustdb) | Disclosed. It's harmless and still present; delete it if unwanted. Later scripts use a throwaway `GNUPGHOME` | Read-only checks can still write state; isolate them |
+| 3 | Docker install | Rev 1 stopped at step 4 with a **false** "candidate not from download.docker.com". Under `pipefail`, `apt-cache madison \| head -1` died of SIGPIPE (141). The same pattern could also have silently skipped `&& fail` checks | Rev 2: capture output to a variable, then match; a stricter origin check (every package, every origin of the candidate version); resumable. Rev 1 made no package changes | Never pipe into `head`, `grep -q` or `awk …exit` under `pipefail` |
+| 4 | Phase U | The Windows `.pub` file had CRLF line endings | `sed -i 's/\r$//'` before install; fingerprint unchanged and checked again | Normalise keys that come from Windows |
+| 5 | Phase G | Deploy key rejected (19:40): it wasn't registered on GitHub correctly | The user re-added it; no keys were regenerated; it verified at 19:53 | Compare the fingerprint GitHub shows with the local one |
+| 6 | Phase G | The first write-access probe sent the flush too early, giving an inconclusive result | Repeated with the flush after the ref advertisement; it showed push capabilities and nothing was sent | Make protocol probes wait for the server |
+| 7 | Phase S prep | The scratchpad (`/tmp`, tmpfs) was wiped at the 15:59 reboot, losing the power script | Recreated; it writes byte-identical output to the live file. All scripts are now in `host/scripts/` | Keep nothing that matters in `/tmp` |
+| 8 | Phase S prep | `appdata-init` could create early directories before rejecting a later bad line | The parent-order check moved into the validation pass, so nothing is created on error (tested) | Validate everything before the first change |
+| 9 | Phase S (S2) | `cp -a SRC/. DST/` made `/srv/stacks` 0775 for about 1 minute (**world-readable**) | Restored to 0750; script retired with an exit-1 guard; corrected pattern documented (§6) | Re-check permissions after every write into a protected directory |
+| 10 | Phase S (pre-S3) | The first secret scan was invalid: a pattern starting with `-----` was parsed as an option | Rerun with `git grep -e …`; detector confirmed on a planted key; result clean | Pass regexes with `-e`; check that a scanner can actually catch something |
+
+**Recovery instructions:** `RECOVERY.md`, using `host/scripts/01-…06-` in order. Each script stops on the first failed check and refuses to overwrite existing state.
+
+---
+
+## 8. Facts that matter for later phases
+
+- **The `nftables` package is installed** (nft 1.1.3), but `nftables.service` is **disabled and inactive**. The earlier recon wrongly reported nft as missing; it is in `/usr/sbin`, which isn't on the user PATH (§7 #1).
 - **The default `/etc/nftables.conf` starts with `flush ruleset`.** Once Docker is installed, enabling or restarting `nftables.service` with that file would **delete Docker's firewall rules**. Docker's iptables-nft rules also live in nftables, so they would go too. Do not enable it until the firewall design accounts for this.
 - `iptables` is not installed. The `docker-ce` package depends on it and will pull it in.
-- `docker` group (gid 988) exists with no members. `/srv` is still empty (root:root 0755); Phase S hasn't run.
+- `docker` group (gid 988) exists with no members. `/srv` (root:root 0755) contains `stacks` and `appdata` (section 6).
+- The scratchpad that held the review scripts is in `/tmp` (tmpfs) and **is wiped at reboot**. Durable copies of all host scripts are in `host/scripts/`.
 - User IDs: daniel 1000, axel 1001. The 2000–2999 range is reserved for service containers (D4).
 - GitHub's SSH host key (from docs.github.com, checked 2026-11-09): Ed25519 `SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU`, ECDSA `SHA256:p2QAMXNIC1TJYWeIOttrVc98/R1BUFWu3/LiyKgUfQM`, RSA `SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s`.

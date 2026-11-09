@@ -8,6 +8,13 @@ For: a dead disk, a reinstall, or replacement hardware. Each step references the
 - Router (Deco): DHCP reservation for the server's MAC address → 192.168.68.115.
 - Access to the backup (NAS) and the restic password (backup phase); and GitHub accounts dlsamu and axelsamuelsson88.
 
+## 0b. Get a bootstrap copy of this repository
+The scripts below are in this repository, but cloning it needs the GitHub keys that script 05 creates. Get a first copy in **one** of these ways and unpack it to `~/bootstrap` (as daniel):
+- from the NAS backup of `/srv/stacks` (backup phase), or
+- in a browser on the KDE desktop, logged in as **dlsamu**: github.com/dlsamu/dsserver-stacks → Code → **Download ZIP**.
+
+Run every script from `~/bootstrap/host/scripts/` (or a copy in `/tmp`), never from inside `/srv/stacks`. Delete `~/bootstrap` after step 2.
+
 ## 1. Host base (in order; each script stops on the first failed check)
 | Step | Script / action | Record |
 |---|---|---|
@@ -22,9 +29,11 @@ Then compare the live files with `host/files/`, for example: `diff -r host/files
 
 ## 2. This repository
 ```bash
-sudo install -d -m 0700 -o root   -g root   /srv/appdata
-sudo install -d -m 0750 -o daniel -g daniel /srv/stacks
-git clone git@github-stacks:dlsamu/dsserver-stacks.git /srv/stacks
+# Creates /srv/appdata (root 0700) and an empty /srv/stacks (daniel 0750), or only verifies them if they exist;
+# runs the uid 2001/2002 bind-mount probe and the non-admin isolation check. Idempotent; changes nothing that exists.
+sudo bash ~/bootstrap/host/scripts/06-srv-dirs.sh
+git clone git@github-stacks:dlsamu/dsserver-stacks.git /srv/stacks      # as daniel, into the empty directory
+stat -c '%a %U:%G' /srv/stacks                                          # must still be: 750 daniel:daniel
 git -C /srv/stacks config user.name  "Daniel Samuelsson"
 git -C /srv/stacks config user.email "ahdanielsamuelsson@gmail.com"
 git -C /srv/stacks config core.hooksPath .githooks
