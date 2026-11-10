@@ -33,7 +33,8 @@ The Raspberry Pi (dsoffice) hands its kept responsibilities to dsserver. Milesto
 |---|---|---|
 | M1 | **Remote admin of kjells-computer** (Kjell's Mint laptop) from dsserver, independent of the Pi: Tailscale client (`11-tailscale.sh`, host-config §13), then a **new, passphrase-protected** Ed25519 key for interactive use only (handover option B: no private key is shared with the Pi). Its public key is appended to `~kjell/.ssh/authorized_keys` over the Pi's existing connection; the Pi's key stays until Pi retirement. Done when dsserver logs in with its own key | **Done 2026-11-10**: [kjells-computer-admin.md](kjells-computer-admin.md) |
 | M2 | kjell-monitor | **Dropped** (replaced by the Pi's future observability platform) |
-| M3–M7 | stock-tracker, public endpoint + app, notification cutover, StockPulse dev, Pi retirement | Not started; see the handover |
+| M3 | stock-tracker on dsserver, dark. Review done: [stockpulse-review.md](stockpulse-review.md) (**critical: `serve.py` serves its whole directory**). Proposed first step M3a: fixed `serve.py` as a hardened native service on 127.0.0.1:8080 with copied reports, no screeners or credential | Review 2026-11-10; awaiting decisions |
+| M4–M7 | public endpoint + app, notification cutover, StockPulse dev, Pi retirement | Not started; see the handover |
 
 ## Deferred (waits on the replacement NAS)
 - B: restic backups of dsserver to the new NAS, plus restore drills and a backup check in the heartbeat. Until then, **no service holding valuable data is deployed**, and dev work is pushed to GitHub.
