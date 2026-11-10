@@ -369,11 +369,19 @@ Script `host/scripts/09-delegated-sudo.sh` (`show`, `install`, `remove`). Purpos
 
 | Item | Setting |
 |---|---|
-| Snapshot | `/usr/local/lib/dsserver-admin/` (root:root, 0755/0644): copies of the allowed scripts and the files they install, taken from **git HEAD** (committed content only). Repository edits change nothing until `install` is run again by you |
+| Snapshot | `/usr/local/lib/dsserver-admin/` (root:root, 0755/0644): copies of the allowed scripts and the files they install, taken from the **reviewed commit** given to `install` (must equal HEAD). Repository edits change nothing until `install` is run again by you |
 | Rule | `/etc/sudoers.d/dsserver-delegated` (0440, visudo-checked): `daniel ALL=(root) NOPASSWD:` the **exact command lines** in `COMMANDS` (script path + one fixed argument). No wildcards, shells, editors or `systemctl` |
 | Currently allowed | `07-unattended-upgrades.sh` `preflight`, `install`, `verify`, `status`, `hold`, `release`, `run-now`. Not `rollback` |
 | Unchanged | daniel's normal `sudo` (with password); `env_reset`; root login disabled |
 
+**Security review (2026-11-10), fixed before first install:**
+- *Symlink hole:* scripts derived their file paths from `$0`. A link named `07-unattended-upgrades.sh` in a daniel-owned tree pointing to the snapshot would satisfy sudo (it matches by file identity), and the script would have installed an APT config and a binary from next to the link. That is arbitrary root execution. 07 and 08 now resolve their real location with `readlink -f`. Hard links are blocked by `fs.protected_hardlinks=1`.
+- *Unpinned content:* `install` now takes the reviewed commit and refuses if HEAD differs.
+- `git` runs as daniel with daniel's HOME, never as root; the temporary snapshot directory is removed on failure; `install` prints `sudo -l -U daniel` (including Defaults) for review.
+- Checked: all directories on the paths used (/usr/local/{lib,sbin}, /etc/apt, /run, secure_path dirs) are root-owned and not group/world-writable; sudo 1.9.16 with `env_reset`, which strips `BASH_ENV`, `APT_CONFIG`, `LD_*`, `PYTHON*`; exact argument matching (one fixed argument, extra or missing arguments don't match).
+
 **Risk accepted:** any process running as daniel can run exactly these commands without a password. Their worst effect is installing or upgrading packages from the signed Debian repositories (Docker excluded) and pausing/resuming the upgrade timer. Approval of *when* to run e.g. `run-now` stays with you; Claude asks first.
 
-**Extending it** (e.g. A2): add the files and command lines to `FILES`/`COMMANDS`, commit, then run `sudo bash 09-delegated-sudo.sh install` yourself. **Remove:** `sudo bash 09-delegated-sudo.sh remove`.
+**Extending it** (e.g. A2): add the files and command lines to `FILES`/`COMMANDS`, commit, review, then run `sudo bash 09-delegated-sudo.sh install <commit>` yourself.
+
+**Audit:** every use is logged by sudo: `journalctl _COMM=sudo -g dsserver-admin`. Package changes: `/var/log/apt/history.log`, `/var/log/unattended-upgrades/`. **Remove:** `sudo bash 09-delegated-sudo.sh remove`.

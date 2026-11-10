@@ -15,7 +15,9 @@
 #
 # Usage (as root, in Konsole):
 #   sudo bash 09-delegated-sudo.sh show       read-only: print the snapshot plan and the sudoers rule
-#   sudo bash 09-delegated-sudo.sh install    (re)create the snapshot from git HEAD and the sudoers rule
+#   sudo bash 09-delegated-sudo.sh install <commit>
+#                                             (re)create the snapshot and the sudoers rule; <commit> is
+#                                             the commit you reviewed and must equal HEAD (pins the content)
 #   sudo bash 09-delegated-sudo.sh remove     delete the sudoers rule and the snapshot
 #
 # Afterwards daniel runs, e.g.:  sudo -n /usr/local/lib/dsserver-admin/host/scripts/07-unattended-upgrades.sh verify
@@ -49,9 +51,11 @@ COMMANDS=(
 fail() { echo; echo "FAILED: $*"; echo "Stopped."; exit 1; }
 ok()   { echo "ok    $*"; }
 [ "$(id -u)" = 0 ] || fail "run with sudo"
-CMD=${1:-}; [ $# -eq 1 ] || CMD=""
+CMD=${1:-}; ARG=${2:-}
+case "$CMD:$#" in show:1|remove:1|install:2) ;; *) CMD="" ;; esac
 
-git_as_owner() { runuser -u "$OWNER" -- git -C "$REPO" "$@"; }
+# git runs as the repository owner (never as root), with that user's HOME.
+git_as_owner() { runuser -u "$OWNER" -- env HOME="/home/$OWNER" git -C "$REPO" "$@"; }
 
 rule_text() {
     local commit=$1 c first=1
@@ -75,13 +79,16 @@ show() {
 
 install_all() {
     command -v visudo >/dev/null || fail "visudo not found"
-    local commit; commit=$(git_as_owner rev-parse --short HEAD)
+    local full; full=$(git_as_owner rev-parse HEAD)
+    [[ $ARG =~ ^[0-9a-f]{7,40}$ ]] && [[ $full == "$ARG"* ]] || fail "HEAD is $full, not the reviewed commit '$ARG' (nothing changed)"
+    local commit=${full:0:12}
     local dirty; dirty=$(git_as_owner status --porcelain -- "${FILES[@]}")
     [ -z "$dirty" ] || echo "note  uncommitted changes in snapshot files are IGNORED (snapshot uses HEAD):
 $dirty"
 
     # Build the snapshot next to the final location, then swap it in.
     local tmp; tmp=$(mktemp -d "$SNAP.new.XXXXXX"); chmod 0755 "$tmp"
+    trap 'rm -rf -- "$tmp"' EXIT
     local f mode
     for f in "${FILES[@]}"; do
         mode=0644; [[ $EXEC_FILES == *" $f "* ]] && mode=0755
@@ -89,7 +96,7 @@ $dirty"
         git_as_owner show "HEAD:$f" >"$tmp/$f" || { rm -rf -- "$tmp"; fail "$f not in HEAD"; }
         chown root:root "$tmp/$f"; chmod "$mode" "$tmp/$f"
     done
-    rm -rf -- "$SNAP"; mv "$tmp" "$SNAP"
+    rm -rf -- "$SNAP"; mv "$tmp" "$SNAP"; trap - EXIT
     [ "$(stat -c '%U %a' "$SNAP")" = "root 755" ] || fail "$SNAP ownership"
     if find "$SNAP" ! -user root -o -perm /022 | grep -q .; then fail "$SNAP contains files not owned by root or group/world-writable"; fi
     ok "snapshot of $commit in $SNAP:"
@@ -102,7 +109,7 @@ $dirty"
     visudo -cq || { rm -f "$RULE"; fail "full sudoers check failed - rule removed again"; }
     ok "installed $RULE (visudo OK)"
     echo; echo "Allowed for $OWNER without password:"
-    runuser -u "$OWNER" -- sudo -n -l 2>/dev/null | sed -n '/NOPASSWD/,$p' | sed 's/^/  /' || true
+    sudo -l -U "$OWNER" | sed 's/^/  /'
     echo; echo "09 INSTALL PASSED. Re-run 'install' after committing changes to the snapshot files."
 }
 
@@ -117,5 +124,5 @@ case $CMD in
     show) show ;;
     install) install_all ;;
     remove) remove ;;
-    *) echo "usage: sudo bash $0 show|install|remove" >&2; exit 2 ;;
+    *) echo "usage: sudo bash $0 show | install <reviewed-commit> | remove" >&2; exit 2 ;;
 esac

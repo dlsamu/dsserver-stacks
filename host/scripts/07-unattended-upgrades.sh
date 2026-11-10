@@ -26,7 +26,9 @@
 # Writes nothing inside the repository.
 set -euo pipefail
 
-HERE=$(cd "$(dirname "$0")" && pwd)
+# Resolve symlinks: files are always read next to the REAL script, never next to a link to it
+# (a link in a user-writable directory must not be able to supply our config or binaries).
+HERE=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
 REPO=$(cd "$HERE/../.." && pwd)
 SRC_CONF=$REPO/host/files/etc/apt/apt.conf.d/52dsserver-unattended-upgrades
 SRC_RBN=$REPO/host/bin/dsserver-reboot-needed

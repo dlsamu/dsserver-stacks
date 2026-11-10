@@ -17,7 +17,9 @@
 # Writes nothing inside the repository.
 set -euo pipefail
 
-HERE=$(cd "$(dirname "$0")" && pwd)
+# Resolve symlinks: files are always read next to the REAL script, never next to a link to it
+# (a link in a user-writable directory must not be able to supply our config or binaries).
+HERE=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
 REPO=$(cd "$HERE/../.." && pwd)
 SRC_BIN=$REPO/host/bin/dsserver-health
 SRC_SVC=$REPO/host/files/etc/systemd/system/dsserver-health.service
