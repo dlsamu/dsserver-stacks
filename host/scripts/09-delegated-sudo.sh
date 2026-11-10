@@ -16,8 +16,10 @@
 # Usage (as root, in Konsole):
 #   sudo bash 09-delegated-sudo.sh show       read-only: print the snapshot plan and the sudoers rule
 #   sudo bash 09-delegated-sudo.sh install <commit>
-#                                             (re)create the snapshot and the sudoers rule; <commit> is
-#                                             the commit you reviewed and must equal HEAD (pins the content)
+#                                             (re)create the snapshot and the sudoers rule; <commit> is the
+#                                             FULL 40-character hash you reviewed. Refuses unless HEAD equals
+#                                             it and the working tree is clean; files are read from that
+#                                             commit object (not from HEAD or the working tree).
 #   sudo bash 09-delegated-sudo.sh remove     delete the sudoers rule and the snapshot
 #
 # Afterwards daniel runs, e.g.:  sudo -n /usr/local/lib/dsserver-admin/host/scripts/07-unattended-upgrades.sh verify
@@ -55,7 +57,7 @@ CMD=${1:-}; ARG=${2:-}
 case "$CMD:$#" in show:1|remove:1|install:2) ;; *) CMD="" ;; esac
 
 # git runs as the repository owner (never as root), with that user's HOME.
-git_as_owner() { runuser -u "$OWNER" -- env HOME="/home/$OWNER" git -C "$REPO" "$@"; }
+git_as_owner() { runuser -u "$OWNER" -- env HOME="/home/$OWNER" git --no-replace-objects -C "$REPO" "$@"; }
 
 rule_text() {
     local commit=$1 c first=1
@@ -80,11 +82,13 @@ show() {
 install_all() {
     command -v visudo >/dev/null || fail "visudo not found"
     local full; full=$(git_as_owner rev-parse HEAD)
-    [[ $ARG =~ ^[0-9a-f]{7,40}$ ]] && [[ $full == "$ARG"* ]] || fail "HEAD is $full, not the reviewed commit '$ARG' (nothing changed)"
-    local commit=${full:0:12}
-    local dirty; dirty=$(git_as_owner status --porcelain -- "${FILES[@]}")
-    [ -z "$dirty" ] || echo "note  uncommitted changes in snapshot files are IGNORED (snapshot uses HEAD):
+    [[ $ARG =~ ^[0-9a-f]{40}$ ]] || fail "give the full 40-character commit hash you reviewed (nothing changed)"
+    [ "$full" = "$ARG" ] || fail "HEAD is $full, not the reviewed commit $ARG (nothing changed)"
+    local commit=$full
+    local dirty; dirty=$(git_as_owner status --porcelain --untracked-files=all)
+    [ -z "$dirty" ] || fail "working tree is not clean (nothing changed):
 $dirty"
+    ok "HEAD = reviewed commit $full, working tree clean"
 
     # Build the snapshot next to the final location, then swap it in.
     local tmp; tmp=$(mktemp -d "$SNAP.new.XXXXXX"); chmod 0755 "$tmp"
@@ -93,12 +97,13 @@ $dirty"
     for f in "${FILES[@]}"; do
         mode=0644; [[ $EXEC_FILES == *" $f "* ]] && mode=0755
         install -d -m 0755 -o root -g root "$tmp/$(dirname "$f")"
-        git_as_owner show "HEAD:$f" >"$tmp/$f" || { rm -rf -- "$tmp"; fail "$f not in HEAD"; }
+        git_as_owner show "$full:$f" >"$tmp/$f" || fail "$f not in commit $full"
         chown root:root "$tmp/$f"; chmod "$mode" "$tmp/$f"
     done
     rm -rf -- "$SNAP"; mv "$tmp" "$SNAP"; trap - EXIT
     [ "$(stat -c '%U %a' "$SNAP")" = "root 755" ] || fail "$SNAP ownership"
-    if find "$SNAP" ! -user root -o -perm /022 | grep -q .; then fail "$SNAP contains files not owned by root or group/world-writable"; fi
+    local bad; bad=$(find "$SNAP" \( ! -user root -o ! -group root -o -perm /022 -o -type l \) -print)
+    [ -z "$bad" ] || fail "$SNAP has entries that are links, not root:root, or group/world-writable: $bad"
     ok "snapshot of $commit in $SNAP:"
     (cd "$SNAP" && sha256sum "${FILES[@]}" | sed 's/^/      /')
 
