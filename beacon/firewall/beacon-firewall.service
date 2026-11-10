@@ -1,0 +1,16 @@
+[Unit]
+Description=Beacon host firewall (nftables table inet beacon_fw)
+DefaultDependencies=no
+Before=network-pre.target
+Wants=network-pre.target
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/beacon-firewall.nft
+ExecReload=/usr/sbin/nft -f /etc/beacon-firewall.nft
+ExecStop=/usr/sbin/nft delete table inet beacon_fw
+
+[Install]
+WantedBy=sysinit.target

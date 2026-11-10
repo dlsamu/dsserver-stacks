@@ -4,6 +4,8 @@
 # - unattended-upgrades: Debian security + stable updates (package default) plus the Raspberry Pi
 #   archive (kernel, firmware, bootloader come only from there). Daily. No automatic reboot.
 # - sshd: no root login, only user daniel (password auth is already off via cloud-init).
+# - memory cgroup on (Pi firmware passes cgroup_disable=memory; needed for container memory stats
+#   and limits; takes effect after a reboot), journald capped at 500 MB.
 # Installs no monitoring software and no Docker.
 set -euo pipefail
 ok()   { echo "ok    $*"; }
@@ -48,3 +50,16 @@ sshd -t || fail "sshd config test failed"
 systemctl reload ssh
 sshd -T | grep -E '^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication|allowusers) ' | sed 's/^/      /'
 ok "sshd reloaded (existing sessions unaffected)"
+
+echo "=== memory cgroup + journald cap"
+F=/boot/firmware/cmdline.txt
+if ! grep -q cgroup_enable=memory "$F"; then
+    cp -p "$F" "$F.bak-$(date +%Y%m%d)"
+    sed -i "1 s/\$/ cgroup_enable=memory cgroup_memory=1/" "$F"
+    echo "      cmdline.txt changed: REBOOT needed"
+fi
+grep -q memory /sys/fs/cgroup/cgroup.controllers && ok "memory cgroup active" || echo "      memory cgroup not active yet (reboot)"
+install -d /etc/systemd/journald.conf.d
+printf '[Journal]\nSystemMaxUse=500M\n' > /etc/systemd/journald.conf.d/50-beacon.conf
+systemctl restart systemd-journald
+ok "journald SystemMaxUse=500M"

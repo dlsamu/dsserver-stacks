@@ -1,0 +1,33 @@
+# Filtering Docker API proxy for the Beszel agent (same file on Beacon and dsserver).
+# The agent never touches /var/run/docker.sock. It talks to /run/beszel-docker/docker.sock, which
+# allows ONLY these GET requests (anchored ^...$ by socket-proxy; every other method is denied):
+#   /version  /info  /containers/json  /containers/<id>/stats
+# Denied, among others: container inspect (shows env vars/secrets), logs, archive/export, exec,
+# images, events, every POST/PUT/DELETE. /run/beszel-docker is 0750 owned 64001:beszel (64001 = unused uid reserved for this proxy), so only the
+# beszel group (the agent) can reach the socket (the 0666 socket file is only reachable through that directory). No network at all for this container.
+name: beszel-socket-proxy
+services:
+  socket-proxy:
+    image: wollomatic/socket-proxy:1.13.2@sha256:ff95d6ff6c27853005ef85eb8f4ab5923dc3d2f1e055f98fb6aeeaceec3fe848
+    container_name: beszel-socket-proxy
+    restart: unless-stopped
+    network_mode: none
+    user: "64001:${DOCKER_GID:?set by install-agent.sh}"   # dedicated unused uid: nothing else on the host owns /run/beszel-docker
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command:
+      - -loglevel=info
+      - -allowGET=(/version|/info|/containers/json|/containers/[0-9a-f]{12,64}/stats)
+      - -proxysocketendpoint=/run/beszel-docker/docker.sock
+      - -proxysocketendpointfilemode=0666
+      - -watchdoginterval=300
+      - -stoponwatchdog
+      - -shutdowngracetime=5
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/beszel-docker:/run/beszel-docker
+    logging:
+      driver: local
+      options: {max-size: "5m", max-file: "2"}
+    mem_limit: 64m

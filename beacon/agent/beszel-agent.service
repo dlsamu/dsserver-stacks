@@ -1,0 +1,37 @@
+# Beszel agent, native (/srv/stacks/beacon/agent). Same unit on every Linux host.
+# WebSocket mode: connects OUT to the hub (HUB_URL); DISABLE_SSH=true, so it opens no listening port.
+# Not in the docker or disk groups. Docker data only via the filtering proxy socket (DOCKER_HOST).
+[Unit]
+Description=Beszel monitoring agent
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=beszel
+Group=beszel
+SupplementaryGroups=systemd-journal
+EnvironmentFile=/etc/beszel-agent/env
+Environment=DISABLE_SSH=true
+Environment=DATA_DIR=/var/lib/beszel-agent
+StateDirectory=beszel-agent
+ExecStart=/usr/local/bin/beszel-agent
+Restart=always
+RestartSec=10
+MemoryMax=256M
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+KeyringMode=private
+RemoveIPC=yes
+
+[Install]
+WantedBy=multi-user.target
