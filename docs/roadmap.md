@@ -31,7 +31,7 @@ The Raspberry Pi (dsoffice) hands its kept responsibilities to dsserver. Milesto
 
 | # | Increment | Status |
 |---|---|---|
-| M1 | **Remote admin of kjells-computer** (Kjell's Mint laptop) from dsserver, independent of the Pi: Tailscale client (`11-tailscale.sh`, host-config §13), then a **new, passphrase-protected** Ed25519 key for interactive use only (handover option B: no private key is shared with the Pi). Its public key is appended to `~kjell/.ssh/authorized_keys` over the Pi's existing connection; the Pi's key stays until Pi retirement. Done when dsserver logs in with its own key | Tailscale script prepared 2026-11-10 |
+| M1 | **Remote admin of kjells-computer** (Kjell's Mint laptop) from dsserver, independent of the Pi: Tailscale client (`11-tailscale.sh`, host-config §13), then a **new, passphrase-protected** Ed25519 key for interactive use only (handover option B: no private key is shared with the Pi). Its public key is appended to `~kjell/.ssh/authorized_keys` over the Pi's existing connection; the Pi's key stays until Pi retirement. Done when dsserver logs in with its own key | **Done 2026-11-10**: [kjells-computer-admin.md](kjells-computer-admin.md) |
 | M2 | kjell-monitor | **Dropped** (replaced by the Pi's future observability platform) |
 | M3–M7 | stock-tracker, public endpoint + app, notification cutover, StockPulse dev, Pi retirement | Not started; see the handover |
 
