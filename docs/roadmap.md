@@ -16,7 +16,7 @@ Updated 2026-11-10. Each item is a small increment that is approved separately, 
 ## Next (proposed order)
 | # | Increment | Depends on | Who does what |
 |---|---|---|---|
-| **A1** (installed 2026-11-10; upgrade timer on hold until run-now is approved) | **Automatic security updates:** `unattended-upgrades`, daily, Debian security and stable updates only, **no automatic reboot**, Docker's repository excluded (updated by hand) | — | You run the script in Konsole |
+| **A1** (done 2026-11-10) | **Automatic security updates:** `unattended-upgrades`, daily, Debian security and stable updates only, **no automatic reboot**, Docker's repository excluded (updated by hand) | — | You run the script in Konsole |
 | **A2** (prepared 2026-11-10, not executed) | **External heartbeat and host health state:** a native `dsserver-health` timer (every 5 min) sends one HTTPS ping to Healthchecks.io, marked ok or fail with short codes only (failed host units, disk health, root disk above 90%, updates stale; Docker state and reboot need as information). Healthchecks emails the Gmail inbox | a Healthchecks.io account (yours) | You create the account and check; you install the ping URL in Konsole (hidden input) |
 | A0 (installed 2026-11-10) | **Delegated sudo:** exact, root-owned script commands without a password, so Claude can run approved steps | — | You run `09-delegated-sudo.sh install` once in Konsole (host-config §11) |
 | A3 | **Firewall:** our own systemd unit, iptables-nft for IPv4 and IPv6. Incoming traffic blocked by default, SSH from the LAN only, published Docker ports limited to the LAN through `DOCKER-USER`, a 5-min auto-revert while testing | A1 | You run it in Konsole and test from dsoffice and Windows; separate detailed plan |
