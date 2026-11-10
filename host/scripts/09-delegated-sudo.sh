@@ -6,7 +6,7 @@
 # without a password, WITHOUT giving daniel general passwordless root.
 #
 # How it stays narrow:
-#   1. The allowed scripts are copied from the COMMITTED repository state (git HEAD, not the working
+#   1. The allowed scripts are copied from the reviewed COMMIT (git objects, not the working
 #      tree) into a root-owned snapshot: /usr/local/lib/dsserver-admin (root:root, not writable by
 #      daniel). Editing the repository therefore changes nothing until you run 'install' again.
 #   2. /etc/sudoers.d/dsserver-delegated allows ONLY the exact command lines listed in COMMANDS below
@@ -35,8 +35,12 @@ FILES=(
     host/scripts/07-unattended-upgrades.sh
     host/files/etc/apt/apt.conf.d/52dsserver-unattended-upgrades
     host/bin/dsserver-reboot-needed
+    host/scripts/08-health-heartbeat.sh
+    host/bin/dsserver-health
+    host/files/etc/systemd/system/dsserver-health.service
+    host/files/etc/systemd/system/dsserver-health.timer
 )
-EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed "
+EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health "
 
 # Exact command lines daniel may run as root without a password.
 # A1: everything except 'rollback' (rollback stays a manual, deliberate step).
@@ -48,6 +52,15 @@ COMMANDS=(
     "host/scripts/07-unattended-upgrades.sh hold"
     "host/scripts/07-unattended-upgrades.sh release"
     "host/scripts/07-unattended-upgrades.sh run-now"
+# A2: not 'set-url' (needs your terminal for the hidden URL) and not 'rollback'.
+    "host/scripts/08-health-heartbeat.sh preflight"
+    "host/scripts/08-health-heartbeat.sh install"
+    "host/scripts/08-health-heartbeat.sh enable"
+    "host/scripts/08-health-heartbeat.sh status"
+    "host/scripts/08-health-heartbeat.sh test-fail"
+    "host/scripts/08-health-heartbeat.sh test-recover"
+    "host/scripts/08-health-heartbeat.sh test-silence"
+    "host/scripts/08-health-heartbeat.sh test-resume"
 )
 
 fail() { echo; echo "FAILED: $*"; echo "Stopped."; exit 1; }

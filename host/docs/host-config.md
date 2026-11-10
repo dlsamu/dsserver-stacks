@@ -375,7 +375,7 @@ Script `host/scripts/09-delegated-sudo.sh` (`show`, `install`, `remove`). Purpos
 |---|---|
 | Snapshot | `/usr/local/lib/dsserver-admin/` (root:root, 0755/0644): copies of the allowed scripts and the files they install, taken from the **reviewed commit** given to `install` (must equal HEAD). Repository edits change nothing until `install` is run again by you |
 | Rule | `/etc/sudoers.d/dsserver-delegated` (0440, visudo-checked): `daniel ALL=(root) NOPASSWD:` the **exact command lines** in `COMMANDS` (script path + one fixed argument). No wildcards, shells, editors or `systemctl` |
-| Currently allowed | `07-unattended-upgrades.sh` `preflight`, `install`, `verify`, `status`, `hold`, `release`, `run-now`. Not `rollback` |
+| Currently allowed | `07-unattended-upgrades.sh` `preflight`, `install`, `verify`, `status`, `hold`, `release`, `run-now`; `08-health-heartbeat.sh` `preflight`, `install`, `enable`, `status`, `test-fail`, `test-recover`, `test-silence`, `test-resume`. Not `rollback`, not `set-url` (you, in Konsole) |
 | Unchanged | daniel's normal `sudo` (with password); `env_reset`; root login disabled |
 
 **Security review (2026-11-10), fixed before first install:**
