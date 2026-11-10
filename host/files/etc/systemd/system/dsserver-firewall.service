@@ -1,0 +1,23 @@
+# dsserver host firewall (A3): loads /etc/dsserver-firewall.nft (table inet dsserver_fw only).
+# Installed and enabled by host/scripts/10-firewall.sh 'confirm'. Record: host-config §12.
+# Never uses nftables.service: Debian's /etc/nftables.conf starts with "flush ruleset", which would
+# also wipe Docker's tables.
+[Unit]
+Description=dsserver host firewall (nftables table inet dsserver_fw)
+Documentation=file:///srv/stacks/host/docs/host-config.md
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target shutdown.target
+Wants=network-pre.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/dsserver-firewall.nft
+ExecReload=/usr/sbin/nft -f /etc/dsserver-firewall.nft
+# Stopping the unit removes the table (= no firewall). The "-" ignores "table does not exist".
+ExecStop=-/usr/sbin/nft delete table inet dsserver_fw
+
+[Install]
+WantedBy=sysinit.target

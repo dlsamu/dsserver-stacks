@@ -39,8 +39,11 @@ FILES=(
     host/bin/dsserver-health
     host/files/etc/systemd/system/dsserver-health.service
     host/files/etc/systemd/system/dsserver-health.timer
+    host/scripts/10-firewall.sh
+    host/files/etc/dsserver-firewall.nft
+    host/files/etc/systemd/system/dsserver-firewall.service
 )
-EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health "
+EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh "
 
 # Exact command lines daniel may run as root without a password.
 # A1: everything except 'rollback' (rollback stays a manual, deliberate step).
@@ -61,6 +64,16 @@ COMMANDS=(
     "host/scripts/08-health-heartbeat.sh test-recover"
     "host/scripts/08-health-heartbeat.sh test-silence"
     "host/scripts/08-health-heartbeat.sh test-resume"
+# A3: not 'revert' or 'rollback' (turning the firewall off stays with you; the automatic revert covers tests).
+    "host/scripts/10-firewall.sh preflight"
+    "host/scripts/10-firewall.sh selftest-revert"
+    "host/scripts/10-firewall.sh try"
+    "host/scripts/10-firewall.sh confirm"
+    "host/scripts/10-firewall.sh verify"
+    "host/scripts/10-firewall.sh status"
+    "host/scripts/10-firewall.sh docker-test-start"
+    "host/scripts/10-firewall.sh docker-test-allow"
+    "host/scripts/10-firewall.sh docker-test-stop"
 )
 
 fail() { echo; echo "FAILED: $*"; echo "Stopped."; exit 1; }

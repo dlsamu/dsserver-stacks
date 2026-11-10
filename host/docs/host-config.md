@@ -382,7 +382,7 @@ Script `host/scripts/09-delegated-sudo.sh` (`show`, `install`, `remove`). Purpos
 |---|---|
 | Snapshot | `/usr/local/lib/dsserver-admin/` (root:root, 0755/0644): copies of the allowed scripts and the files they install, taken from the **reviewed commit** given to `install` (must equal HEAD). Repository edits change nothing until `install` is run again by you |
 | Rule | `/etc/sudoers.d/dsserver-delegated` (0440, visudo-checked): `daniel ALL=(root) NOPASSWD:` the **exact command lines** in `COMMANDS` (script path + one fixed argument). No wildcards, shells, editors or `systemctl` |
-| Currently allowed | `07-unattended-upgrades.sh` `preflight`, `install`, `verify`, `status`, `hold`, `release`, `run-now`; `08-health-heartbeat.sh` `preflight`, `install`, `enable`, `status`, `test-fail`, `test-recover`, `test-silence`, `test-resume`. Not `rollback`, not `set-url` (you, in Konsole) |
+| Currently allowed | `07-unattended-upgrades.sh` `preflight`, `install`, `verify`, `status`, `hold`, `release`, `run-now`; `08-health-heartbeat.sh` `preflight`, `install`, `enable`, `status`, `test-fail`, `test-recover`, `test-silence`, `test-resume`; `10-firewall.sh` `preflight`, `selftest-revert`, `try`, `confirm`, `verify`, `status`, `docker-test-start`, `docker-test-allow`, `docker-test-stop`. Not `rollback` (any), `set-url`, or `revert` (firewall) |
 | Unchanged | daniel's normal `sudo` (with password); `env_reset`; root login disabled |
 
 **Security review (2026-11-10), fixed before first install:**
@@ -396,3 +396,24 @@ Script `host/scripts/09-delegated-sudo.sh` (`show`, `install`, `remove`). Purpos
 **Extending it** (e.g. A2): add the files and command lines to `FILES`/`COMMANDS`, commit, review, then run `sudo bash 09-delegated-sudo.sh install <commit>` yourself.
 
 **Audit:** every use is logged by sudo: `journalctl _COMM=sudo -g dsserver-admin`. Package changes: `/var/log/apt/history.log`, `/var/log/unattended-upgrades/`. **Remove:** `sudo bash 09-delegated-sudo.sh remove`.
+
+## 12. Host firewall (A3): PREPARED, not yet executed
+Script `host/scripts/10-firewall.sh`; ruleset `host/files/etc/dsserver-firewall.nft`; unit `dsserver-firewall.service`; application access: [docs/network-access.md](../../docs/network-access.md).
+
+| Item | Setting |
+|---|---|
+| Mechanism | One nftables table, `inet dsserver_fw` (IPv4+IPv6), loaded by our own unit at boot (before `network-pre.target`). The file replaces only this table, atomically. **No `flush ruleset`**, and `nftables.service` stays disabled: Debian's `/etc/nftables.conf` flushes everything, including Docker's tables |
+| Docker | Our chains run at priority −10, before Docker's (0). Our drops are final; our accepts still pass through Docker's rules. Docker (`iptables` backend) keeps its own tables untouched |
+| Input | policy **drop**. Allowed: `lo`; replies; ICMP errors; ping from the LAN; IPv6 ND/RA/MLD and packet-too-big; IGMP from the LAN; DHCPv4 replies; DHCPv6 replies from link-local. Plus the access scopes: LAN = SSH 22/tcp, KDE Connect 1714–1764/tcp+udp, mDNS 5353/udp. Broadcast/multicast noise dropped silently; other drops logged (6/min, `dsserver-fw drop:`) |
+| Forward | policy accept, but every NEW connection from `eno1`/VPN must be a Docker published port **in a scope**. Otherwise it is dropped (`dsserver-fw published-drop:` / `fwd-drop:`). Direct routing to container addresses is dropped. Containers' outgoing traffic is not affected |
+| Containers → host | dropped (e.g. container → 172.17.0.1:22) |
+| Outgoing | not filtered |
+| If the unit fails at boot | No firewall (fail-open), and the heartbeat reports the failed unit (A2) |
+
+**Automatic revert:** `try` first writes `/run/dsserver-firewall/rollback.nft` (the previous state of our table, or its removal), then schedules `nft -f rollback.nft` as a transient systemd timer (`dsserver-fw-revert.timer`, 600 s), and only then loads the new rules. The timer belongs to PID 1, so it fires even if the calling shell, sudo, the terminal or SSH dies. Until `confirm`, nothing is installed in `/etc` or enabled, so a reboot also removes the rules. `selftest-revert` proves the mechanism with an empty table (no chains, so no effect on traffic): the script schedules the removal and exits.
+
+**Tests (no root):** `bash host/tests/test-firewall.sh` builds a throw-away user+network namespace: a server (`eno1` 192.168.68.115/24, `docker0`, a Docker-like NAT for 18080 → 172.17.0.2:80), a LAN client with a LAN and a non-LAN source address, and a container. It sends real TCP/UDP/ICMP/ICMPv6 traffic: **26 checks**, all passing (2026-11-10). This test found a real bug in the first draft: allowed published ports fell through to a drop.
+
+**Live Docker test (during deployment):** `docker-test-start` runs `busybox:1.37.0` (non-root, read-only, no capabilities, 32 MB) publishing `0.0.0.0:18080`. It checks the container's DNS, internet, and container → host SSH, and host → 127.0.0.1:18080. LAN access is tested from dsoffice and Windows: blocked by default, open after `docker-test-allow` (runtime only). `docker-test-stop` removes the container, the image and the runtime element.
+
+**Rollback:** after `confirm`: `sudo systemctl disable --now dsserver-firewall` (immediate), or fully: `sudo bash 10-firewall.sh rollback`. During `try`: wait for the automatic revert, or `sudo bash 10-firewall.sh revert`.

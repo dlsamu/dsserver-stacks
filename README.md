@@ -16,10 +16,11 @@ Infrastructure configuration for **dsserver**, a home server: HP EliteDesk 800 G
 | `host/docs/` | Host configuration record |
 | `docs/` | Planning: [roadmap](docs/roadmap.md), [monitoring architecture](docs/monitoring-architecture.md), [replacement NAS requirements](docs/nas-replacement-requirements.md) |
 | `host/files/` | Copies of every host file we changed, laid out at their real paths |
-| `host/scripts/` | The reviewed scripts used to configure the host, in order (`01-` … `09-`). Run 01–06 from a copy outside this directory; 07–09 read their files from this repository and write nothing into it, so they run in place |
+| `host/scripts/` | The reviewed scripts used to configure the host, in order (`01-` … `10-`). Run 01–06 from a copy outside this directory; 07–10 read their files from this repository and write nothing into it, so they run in place |
 | `host/bin/appdata-init` | Creates a service's data directories under `/srv/appdata` from its `appdata.dirs` |
 | `host/bin/dsserver-health`, `host/bin/dsserver-reboot-needed` | Host heartbeat and reboot check (installed to `/usr/local/sbin` by scripts 07/08) |
-| `host/tests/` | Unprivileged tests for the host programs: `bash host/tests/test-dsserver-health.sh` |
+| `host/tests/` | Unprivileged tests: `bash host/tests/test-dsserver-health.sh`, `bash host/tests/test-firewall.sh` (real traffic in a throw-away network namespace) |
+| `docs/network-access.md` | How applications get network access: scopes localhost / LAN / VPN / internet, and the process |
 | `.githooks/pre-commit` | Blocks commits of `.env`, `secrets/` and private keys (enabled with `core.hooksPath`) |
 
 `/srv/appdata/<service>/` holds persistent container data. It is **not in Git**; it is covered by backups (backup phase). It is root:root 0700 at the top level, and each data directory is owned by the user ID the container runs as.

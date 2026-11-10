@@ -46,6 +46,7 @@ Restore each service's `.env` and `secrets/` from the backup (they aren't in Git
 | Security updates | `sudo bash 07-unattended-upgrades.sh install`, then `… run-now` | host-config §9 |
 | Delegated sudo (optional) | `sudo bash 09-delegated-sudo.sh install <commit>` (after reviewing that commit) | host-config §11 |
 | Heartbeat | `sudo bash 08-health-heartbeat.sh install`, then `set-url` (the URL is on the check's page at healthchecks.io), `enable`, `test-fail`, `test-recover` | host-config §10 |
+| Firewall | `sudo bash 10-firewall.sh try`, test new SSH from another machine, then `confirm` | host-config §12 |
 
 ## 3. Data
 - Restore `/srv/appdata` from the backup with owners and permissions preserved (backup phase documents the exact command).

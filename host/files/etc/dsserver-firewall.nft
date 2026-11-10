@@ -1,0 +1,119 @@
+#!/usr/sbin/nft -f
+# dsserver host firewall (A3). Record: /srv/stacks/host/docs/host-config.md §12.
+# Access process for applications: /srv/stacks/docs/network-access.md
+#
+# Only OUR table is touched: it is created (if missing), deleted and rebuilt in one atomic
+# transaction. There is deliberately NO "flush ruleset": Docker's own tables must survive.
+# Our chains run at priority -10, just before Docker's (0). A drop here is final; an accept here
+# still passes through Docker's rules afterwards, so we can only restrict, never open, Docker.
+
+table inet dsserver_fw
+delete table inet dsserver_fw
+
+table inet dsserver_fw {
+
+    # ---------------------------------------------------------------------------------------------
+    # ACCESS SCOPES - the only part edited when onboarding an application (docs/network-access.md).
+    # Ports are HOST ports: for Docker this is the published port (left side of "18080:80").
+    # localhost scope = no entry here; publish as 127.0.0.1:PORT:PORT instead.
+    # Every element carries a comment naming the application and the decision date.
+    # ---------------------------------------------------------------------------------------------
+    set lan_tcp {
+        type inet_service; flags interval
+        elements = {
+            22 comment "ssh (host) 2026-11-10",
+            1714-1764 comment "KDE Connect (host) 2026-11-10",
+        }
+    }
+    set lan_udp {
+        type inet_service; flags interval
+        elements = {
+            1714-1764 comment "KDE Connect (host) 2026-11-10",
+            5353 comment "mDNS dsserver.local (host) 2026-11-10",
+        }
+    }
+    # VPN scope: no VPN exists yet. Add the interface (e.g. "wg0") when one is approved.
+    set vpn_ifaces   { type ifname; }
+    set vpn_tcp      { type inet_service; flags interval; }
+    set vpn_udp      { type inet_service; flags interval; }
+    # Internet scope: needs a separate approval AND a router port forward. Empty by policy.
+    set internet_tcp { type inet_service; flags interval; }
+    set internet_udp { type inet_service; flags interval; }
+
+    # The LAN. Only IPv4: the host has no global IPv6 address, and IPv6 SSH is not used.
+    set lan4 { type ipv4_addr; flags interval; elements = { 192.168.68.0/24 } }
+
+    # ---------------------------------------------------------------------------------------------
+    # Traffic to the host itself
+    # ---------------------------------------------------------------------------------------------
+    chain input {
+        type filter hook input priority filter - 10; policy drop;
+
+        iif "lo" accept
+        ct state established,related accept
+        ct state invalid drop
+
+        # ICMP: errors are needed for path MTU and diagnostics; ping only from the LAN.
+        ip protocol icmp icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
+        ip protocol icmp icmp type echo-request ip saddr @lan4 accept
+        # IPv6 cannot work without neighbour discovery, router advertisements and MLD.
+        meta l4proto ipv6-icmp icmpv6 type { destination-unreachable, packet-too-big, time-exceeded,
+            parameter-problem, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert,
+            mld-listener-query, mld-listener-report, mld2-listener-report } accept
+        meta l4proto ipv6-icmp icmpv6 type echo-request ip6 saddr fe80::/10 accept
+        # IGMP queries from the router keep multicast (mDNS) flowing through snooping switches.
+        ip protocol igmp ip saddr @lan4 accept
+
+        # DHCP replies (v4 from the router; v6 only from link-local servers).
+        udp sport 67 udp dport 68 accept
+        ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept
+
+        # Access scopes for services running on the host.
+        jump scopes
+
+        # Silent drop for broadcast/multicast noise from other LAN devices; log the rest (rate-limited).
+        fib daddr type { broadcast, multicast } drop
+        limit rate 6/minute burst 10 packets log prefix "dsserver-fw drop: " level info
+    }
+
+    # ---------------------------------------------------------------------------------------------
+    # Traffic routed through the host (Docker). Policy accept: Docker's own rules still apply after us.
+    # ---------------------------------------------------------------------------------------------
+    chain forward {
+        type filter hook forward priority filter - 10; policy accept;
+
+        # New connections arriving from the network:
+        #  - to a Docker published port (DNAT): only if the published port is in a scope
+        #    (the "published" chain accepts or drops; it never falls through);
+        #  - anything else (direct routing to container addresses, using dsserver as a router): drop.
+        iifname { "eno1" } ct state new ct status dnat jump published
+        iifname { "eno1" } ct state new limit rate 6/minute burst 10 packets log prefix "dsserver-fw fwd-drop: " level info
+        iifname { "eno1" } ct state new drop
+        iifname @vpn_ifaces ct state new ct status dnat jump published
+        iifname @vpn_ifaces ct state new drop
+        # Everything else (containers going out, container to container, replies) is left to Docker.
+    }
+
+    chain published {
+        # "accept" here only ends OUR checks; Docker's own forward rules still run afterwards.
+        # Only IPv4 published ports are supported (Docker IPv6 is not enabled).
+        meta nfproto ipv6 drop
+        meta l4proto tcp ct original proto-dst @internet_tcp accept
+        meta l4proto udp ct original proto-dst @internet_udp accept
+        iifname @vpn_ifaces meta l4proto tcp ct original proto-dst @vpn_tcp accept
+        iifname @vpn_ifaces meta l4proto udp ct original proto-dst @vpn_udp accept
+        ip saddr @lan4 meta l4proto tcp ct original proto-dst @lan_tcp accept
+        ip saddr @lan4 meta l4proto udp ct original proto-dst @lan_udp accept
+        limit rate 6/minute burst 10 packets log prefix "dsserver-fw published-drop: " level info
+        drop
+    }
+
+    chain scopes {
+        tcp dport @internet_tcp accept
+        udp dport @internet_udp accept
+        iifname @vpn_ifaces tcp dport @vpn_tcp accept
+        iifname @vpn_ifaces udp dport @vpn_udp accept
+        ip saddr @lan4 tcp dport @lan_tcp accept
+        ip saddr @lan4 udp dport @lan_udp accept
+    }
+}
