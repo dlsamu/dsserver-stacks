@@ -351,7 +351,7 @@ Script `host/scripts/07-unattended-upgrades.sh` (steps: `preflight`, `install`, 
 - **enable** 15:55:25: first ping `status=ok` delivered, timer enabled.
 - **test-fail** 15:55:38: `status=fail problems=test` delivered → **"down" email received**.
 - **test-recover** 15:56:51: `status=ok` delivered → **"up" email received**.
-- Not yet done: the missed-heartbeat test (`test-silence`/`test-resume`), optional.
+- **test-silence** 15:58:36 (last ping 15:56:51): timer stopped → **"down" email received** after period + grace. **test-resume** 16:14:08: ping `status=ok` delivered, timer running again (every 5 min). This shows a silent or powered-off server is detected.
 
 Design: `docs/monitoring-architecture.md`. Script `host/scripts/08-health-heartbeat.sh`; program `host/bin/dsserver-health`; units in `host/files/etc/systemd/system/`. Tests: `bash host/tests/test-dsserver-health.sh` (unprivileged; fakes; 47 checks).
 
