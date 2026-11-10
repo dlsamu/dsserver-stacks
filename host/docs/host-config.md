@@ -345,7 +345,14 @@ Script `host/scripts/07-unattended-upgrades.sh` (steps: `preflight`, `install`, 
 
 **Rollback:** `sudo bash 07-unattended-upgrades.sh rollback` saves copies to `/root/dsserver-rollback/07-<time>/`, removes our two files, purges the package (which removes `20auto-upgrades` and `50unattended-upgrades`) and checks that periodic upgrades are off.
 
-## 10. Host health heartbeat (A2): PREPARED, not yet executed
+## 10. Host health heartbeat (A2): DONE 2026-11-10 (enabled 15:55)
+**Result (2026-11-10):** run through delegated sudo (§11, A2 added in c96dbde). preflight and install passed; installed files identical to the repository (root, 0755/0644), `/etc/dsserver-health` 0700; `systemd-analyze security` exposure 6.0 (expected: runs as root for smartctl). Local report before enabling: ok (NVMe SMART OK, root 2 %, apt stamps fresh, `docker:active` as info). Healthchecks.io check `dsserver-host`: period 5 min, grace 10 min, email to Gmail.
+- **URL entry:** the hidden `set-url` prompt did not work for you in Konsole (cause not yet known). Workaround used: the URL was staged in `~/.ping-url.tmp` (0600), then `sudo install -m 0600 -o root -g root ~/.ping-url.tmp /etc/dsserver-health/ping-url && shred -u ~/.ping-url.tmp`. The URL was shared in the Claude chat by your choice (you accepted that; not rotated). It is not in Git or in any log.
+- **enable** 15:55:25: first ping `status=ok` delivered, timer enabled.
+- **test-fail** 15:55:38: `status=fail problems=test` delivered → **"down" email received**.
+- **test-recover** 15:56:51: `status=ok` delivered → "up" email expected.
+- Not yet done: the missed-heartbeat test (`test-silence`/`test-resume`), optional.
+
 Design: `docs/monitoring-architecture.md`. Script `host/scripts/08-health-heartbeat.sh`; program `host/bin/dsserver-health`; units in `host/files/etc/systemd/system/`. Tests: `bash host/tests/test-dsserver-health.sh` (unprivileged; fakes; 47 checks).
 
 **How it works:** `dsserver-health.timer` (2 min after boot, then every 5 min) runs `dsserver-health --ping` as a sandboxed one-shot root service (60 s timeout, `MemoryMax=64M`, read-only system). It evaluates the host and sends **one** HTTPS request to Healthchecks.io: the success URL, or `/fail` if a host problem exists. Healthchecks emails the Gmail inbox when the state changes, and also when pings stop (period 5 min + grace 10 min).
