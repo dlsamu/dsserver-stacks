@@ -321,7 +321,9 @@ Raw run logs aren't kept in Git. This section records what they showed.
 
 ---
 
-## 9. Automatic security updates (A1): PREPARED, not yet executed
+## 9. Automatic security updates (A1): INSTALLED 2026-11-10 15:17, upgrade timer on HOLD
+**Result (2026-11-10):** run through delegated sudo (§11). preflight passed; install brought exactly `python3-distro-info 1.13` + `unattended-upgrades 2.12`, nothing removed; the package created `20auto-upgrades` and `50unattended-upgrades` and enabled `unattended-upgrades.service`. Verify passed: allowed origins `Debian`/`Debian-Security` for trixie only, Docker not allowed, Automatic-Reboot false, no mail. Pending updates at install time: **none** (`apt-get -s dist-upgrade`: 0 upgraded). Docker packages all at their candidate versions. No reboot needed (kernel 6.12.116+deb13-amd64). Then `hold` at 15:17:33: `apt-daily-upgrade.timer` stopped (still enabled) until `run-now` is approved; `verify` reports it as PAUSED. **Open:** `run-now` (needs approval), then `release`; the apt stamps are written by the first cycle.
+
 Script `host/scripts/07-unattended-upgrades.sh` (steps: `preflight`, `install`, `verify`, `run-now`, `hold`, `release`, `status`, `rollback`). It is independent of Docker and of any NAS.
 
 | Item | Setting |
@@ -364,7 +366,9 @@ Design: `docs/monitoring-architecture.md`. Script `host/scripts/08-health-heartb
 
 **Rollback:** `sudo bash 08-health-heartbeat.sh rollback` disables and removes the timer, service, program, test flag and the URL file. Then delete the check on healthchecks.io.
 
-## 11. Delegated sudo for approved scripts: PREPARED, not yet executed
+## 11. Delegated sudo for approved scripts: INSTALLED 2026-11-10 (commit 235d91d)
+Installed by daniel in Konsole with the reviewed commit; snapshot hashes matched; sudo Defaults: `env_reset`, `mail_badpass`, `secure_path`, `use_pty`. Each delegated run appears in `journalctl _COMM=sudo` (verified).
+
 Script `host/scripts/09-delegated-sudo.sh` (`show`, `install`, `remove`). Purpose: Claude Code (running as daniel, without a terminal for a password) can run approved, scripted operations directly, **without** general passwordless root for daniel.
 
 | Item | Setting |
