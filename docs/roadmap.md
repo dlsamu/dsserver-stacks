@@ -22,16 +22,25 @@ Updated 2026-11-10. Each item is a small increment that is approved separately, 
 | **A3** (done 2026-11-10) | **Firewall:** our own nftables table (IPv4+IPv6), incoming blocked by default, SSH/KDE Connect/mDNS from the LAN only, Docker published ports only when in an access scope, 10-minute automatic revert while testing | A1 | You test new connections from dsoffice and Windows; host-config §12, [network-access.md](network-access.md) |
 | A4 | **BIOS:** After Power Loss → Power On; check for a BIOS newer than 02.17.00; a power-cut test | — | You, at the server |
 | A5 | A **second SSH key** for daniel (e.g. from the Windows PC), so losing dsoffice doesn't lock you out | — | You provide the public key |
-| M1 (deferred) | **Beszel hub** (Compose, pinned, 127.0.0.1 only) plus a **native agent** (our own unit file, no docker or disk groups, no auto-update), then a 48 h benchmark and final limits. Hub heartbeat to a second Healthchecks check | A2 (A3 for LAN access to the dashboard) | Design: [monitoring-architecture.md](monitoring-architecture.md) |
-| M2 | Docker metrics in Beszel through a filtering socket proxy (optional) | M1 | Your decision |
+| O1 (deferred) | **Beszel hub** (Compose, pinned, 127.0.0.1 only) plus a **native agent** (our own unit file, no docker or disk groups, no auto-update), then a 48 h benchmark and final limits. Hub heartbeat to a second Healthchecks check | A2 (A3 for LAN access to the dashboard) | Design: [monitoring-architecture.md](monitoring-architecture.md) |
+| O2 | Docker metrics in Beszel through a filtering socket proxy (optional) | O1 | Your decision |
 | L1 | Optional journald drop-in with an explicit size cap (e.g. `SystemMaxUse=1G`) | — | Only if the default (10% of the disk, up to 4 GB) is not wanted |
+
+## Pi migration (handover `dsserver-migration-v2`, milestones M0–M7)
+The Raspberry Pi (dsoffice) hands its kept responsibilities to dsserver. Milestone numbers follow the handover's MIGRATION-PLAN; the monitoring items above were renamed O1/O2 (formerly M1/M2) to avoid a clash. The handover package is reference material only and is not in Git (it lists where secrets live). kjell-monitor (handover M2) is **not** migrated: the observability platform on the reinstalled Pi will replace it.
+
+| # | Increment | Status |
+|---|---|---|
+| M1 | **Remote admin of kjells-computer** (Kjell's Mint laptop) from dsserver, independent of the Pi: Tailscale client (`11-tailscale.sh`, host-config §13), then a **new, passphrase-protected** Ed25519 key for interactive use only (handover option B: no private key is shared with the Pi). Its public key is appended to `~kjell/.ssh/authorized_keys` over the Pi's existing connection; the Pi's key stays until Pi retirement. Done when dsserver logs in with its own key | Tailscale script prepared 2026-11-10 |
+| M2 | kjell-monitor | **Dropped** (replaced by the Pi's future observability platform) |
+| M3–M7 | stock-tracker, public endpoint + app, notification cutover, StockPulse dev, Pi retirement | Not started; see the handover |
 
 ## Deferred (waits on the replacement NAS)
 - B: restic backups of dsserver to the new NAS, plus restore drills and a backup check in the heartbeat. Until then, **no service holding valuable data is deployed**, and dev work is pushed to GitHub.
 - NAS migration from DATASERVER (DATASERVER and Replay are frozen until the photo backup has been verified).
 
 ## Later
-- A VPN (Tailscale or WireGuard) for remote access and monitoring across networks; rootless Docker for axel.
+- Incoming VPN access to dsserver (adding `tailscale0` to `vpn_ifaces` and lifting shields-up), only when a service needs it; rootless Docker for axel.
 - More hosts in Beszel: Raspberry Pis, the replacement NAS (reachability), the network and the internet, the Linux Mint PC (over the VPN).
 - An off-site copy of backups.
 - Logs: forwarding with `systemd-journal-remote` only if a need appears (see monitoring-architecture §5).
