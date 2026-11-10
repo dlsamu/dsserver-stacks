@@ -7,3 +7,6 @@
 # Output from the host scripts when run inside the repo (logs, port snapshots)
 host/scripts/*.log
 host/scripts/ports-*.txt
+
+# Beacon OS images (large, downloadable; verified by flash-sd.sh)
+beacon/images/*.img.xz
