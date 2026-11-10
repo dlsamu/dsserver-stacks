@@ -15,3 +15,7 @@ Raspberry Pi 5 (8 GB), headless observability host. Raspberry Pi OS Lite 64-bit 
 **Reboot test (2026-11-10 22:49):** `systemctl reboot` over SSH → back in ~15 s, new boot ID, SSH key login ok, `is-system-running` = running, no failed units, NTP synchronized within a minute, throttling 0x0.
 
 **Recovery:** if SSH is lost, power-cycle first (headless). If still unreachable, the card can be read on dsserver (USB reader) to inspect logs, or re-flashed with `flash-sd.sh` (everything on Beacon is reproducible from this directory). Physical console is the last resort.
+
+**Updates applied (2026-11-10 23:00):** all 40 pending packages (+8 new, kernel 6.18.60) with `apt-get full-upgrade`, exit 0, `dpkg --audit` clean, 0 left. Reboot → back in ~20 s on `6.18.60+rpt-rpi-2712`, system `running`, no failed units, NTP synced, 0x0 throttling. Old kernel 6.18.50 is still installed (unattended-upgrades removes unused kernels).
+
+**Bootloader EEPROM:** Beacon runs the May 2025 bootloader; `rpi-eeprom` offers 2026-10-30. `rpi-eeprom-update.service` (Pi OS default, enabled) only checked at boot and did not apply it. Updating it is a separate, deliberate step (`sudo rpi-eeprom-update -a` + reboot).
