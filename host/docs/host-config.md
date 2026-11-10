@@ -350,7 +350,7 @@ Script `host/scripts/07-unattended-upgrades.sh` (steps: `preflight`, `install`, 
 - **URL entry:** the hidden `set-url` prompt did not work for you in Konsole (cause not yet known). Workaround used: the URL was staged in `~/.ping-url.tmp` (0600), then `sudo install -m 0600 -o root -g root ~/.ping-url.tmp /etc/dsserver-health/ping-url && shred -u ~/.ping-url.tmp`. The URL was shared in the Claude chat by your choice (you accepted that; not rotated). It is not in Git or in any log.
 - **enable** 15:55:25: first ping `status=ok` delivered, timer enabled.
 - **test-fail** 15:55:38: `status=fail problems=test` delivered → **"down" email received**.
-- **test-recover** 15:56:51: `status=ok` delivered → "up" email expected.
+- **test-recover** 15:56:51: `status=ok` delivered → **"up" email received**.
 - Not yet done: the missed-heartbeat test (`test-silence`/`test-resume`), optional.
 
 Design: `docs/monitoring-architecture.md`. Script `host/scripts/08-health-heartbeat.sh`; program `host/bin/dsserver-health`; units in `host/files/etc/systemd/system/`. Tests: `bash host/tests/test-dsserver-health.sh` (unprivileged; fakes; 47 checks).
