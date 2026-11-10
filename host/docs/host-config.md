@@ -397,7 +397,16 @@ Script `host/scripts/09-delegated-sudo.sh` (`show`, `install`, `remove`). Purpos
 
 **Audit:** every use is logged by sudo: `journalctl _COMM=sudo -g dsserver-admin`. Package changes: `/var/log/apt/history.log`, `/var/log/unattended-upgrades/`. **Remove:** `sudo bash 09-delegated-sudo.sh remove`.
 
-## 12. Host firewall (A3): PREPARED, not yet executed
+## 12. Host firewall (A3): DONE 2026-11-10 (enabled 17:02)
+**Deployment (2026-11-10), through delegated sudo (§11, A3 added in b65b957):**
+- Pre-checks: `eno1` = 192.168.68.115/24 as in the ruleset; `nftables.service` disabled; local console (KDE session on seat0, other VTs on demand) unaffected by the firewall; A1 active, A2 pinging ok.
+- `selftest-revert` 16:42:12 (the script exited at once): the empty table was removed by PID 1 at 16:43:12. Docker's tables untouched.
+- Baseline without the firewall: container DNS/internet/host-ssh reachable; from dsoffice (192.168.68.121) `curl :18080` → `dsserver-fwtest-ok`. Image `busybox:1.37.0` = `sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec`.
+- First `try` 16:43:24: the client tests were run on dsserver itself by mistake (loopback bypasses the firewall, so they prove nothing). The **real automatic revert fired at 16:53:25** and removed the table as designed.
+- Second `try` 16:58:10, tests from **dsoffice** (192.168.68.121): new SSH reached sshd (`Permission denied (publickey)`: BatchMode with no usable key; the TCP connection and SSH handshake got through), ping ok, `curl :18080` **timed out** (`exit=28`; log: `dsserver-fw published-drop: … SRC=192.168.68.121 … DST=172.17.0.2 DPT=8080`). After `docker-test-allow`: `curl` → `dsserver-fwtest-ok`. On the server: container DNS and internet reachable, container → host SSH **blocked**, host → 127.0.0.1:18080 reachable, host HTTPS ok, heartbeat ping 17:00:29 delivered.
+- `confirm` 17:02:32: revert cancelled, `/etc/dsserver-firewall.nft` + unit installed, enabled at boot (`sysinit.target`), unit reloaded (the runtime 18080 element is gone). `verify` passed. `docker-test-stop`: container and image removed.
+- Not tested: Windows (its battery was empty). New SSH from Windows (axel) is covered by the same LAN rule; check it at the next opportunity.
+
 Script `host/scripts/10-firewall.sh`; ruleset `host/files/etc/dsserver-firewall.nft`; unit `dsserver-firewall.service`; application access: [docs/network-access.md](../../docs/network-access.md).
 
 | Item | Setting |
