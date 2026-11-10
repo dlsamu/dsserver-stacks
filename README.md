@@ -16,7 +16,7 @@ Infrastructure configuration for **dsserver**, a home server: HP EliteDesk 800 G
 | `host/docs/` | Host configuration record |
 | `docs/` | Planning: [roadmap](docs/roadmap.md), [monitoring architecture](docs/monitoring-architecture.md), [replacement NAS requirements](docs/nas-replacement-requirements.md) |
 | `host/files/` | Copies of every host file we changed, laid out at their real paths |
-| `host/scripts/` | The reviewed scripts used to configure the host, in order (`01-` … `08-`). Run 01–06 from a copy outside this directory; 07–08 read their files from this repository and write nothing into it, so they run in place |
+| `host/scripts/` | The reviewed scripts used to configure the host, in order (`01-` … `09-`). Run 01–06 from a copy outside this directory; 07–09 read their files from this repository and write nothing into it, so they run in place |
 | `host/bin/appdata-init` | Creates a service's data directories under `/srv/appdata` from its `appdata.dirs` |
 | `host/bin/dsserver-health`, `host/bin/dsserver-reboot-needed` | Host heartbeat and reboot check (installed to `/usr/local/sbin` by scripts 07/08) |
 | `host/tests/` | Unprivileged tests for the host programs: `bash host/tests/test-dsserver-health.sh` |

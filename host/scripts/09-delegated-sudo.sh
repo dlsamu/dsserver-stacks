@@ -1,0 +1,121 @@
+#!/bin/bash
+# dsserver: narrowly scoped passwordless sudo for approved, scripted admin operations.
+# Record: host/docs/host-config.md §11.
+#
+# Why: routine approved operations (e.g. A1) can then be run by daniel's non-interactive tools
+# without a password, WITHOUT giving daniel general passwordless root.
+#
+# How it stays narrow:
+#   1. The allowed scripts are copied from the COMMITTED repository state (git HEAD, not the working
+#      tree) into a root-owned snapshot: /usr/local/lib/dsserver-admin (root:root, not writable by
+#      daniel). Editing the repository therefore changes nothing until you run 'install' again.
+#   2. /etc/sudoers.d/dsserver-delegated allows ONLY the exact command lines listed in COMMANDS below
+#      (script path + one fixed argument). No wildcards, no shells, no editors, no systemctl.
+#   3. The file is syntax-checked with visudo before it is put in place; sudo's env_reset still applies.
+#
+# Usage (as root, in Konsole):
+#   sudo bash 09-delegated-sudo.sh show       read-only: print the snapshot plan and the sudoers rule
+#   sudo bash 09-delegated-sudo.sh install    (re)create the snapshot from git HEAD and the sudoers rule
+#   sudo bash 09-delegated-sudo.sh remove     delete the sudoers rule and the snapshot
+#
+# Afterwards daniel runs, e.g.:  sudo -n /usr/local/lib/dsserver-admin/host/scripts/07-unattended-upgrades.sh verify
+set -euo pipefail
+
+REPO=/srv/stacks
+OWNER=daniel
+SNAP=/usr/local/lib/dsserver-admin
+RULE=/etc/sudoers.d/dsserver-delegated
+
+# Files copied into the snapshot (repository paths). Executables get 0755, the rest 0644.
+FILES=(
+    host/scripts/07-unattended-upgrades.sh
+    host/files/etc/apt/apt.conf.d/52dsserver-unattended-upgrades
+    host/bin/dsserver-reboot-needed
+)
+EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed "
+
+# Exact command lines daniel may run as root without a password.
+# A1: everything except 'rollback' (rollback stays a manual, deliberate step).
+COMMANDS=(
+    "host/scripts/07-unattended-upgrades.sh preflight"
+    "host/scripts/07-unattended-upgrades.sh install"
+    "host/scripts/07-unattended-upgrades.sh verify"
+    "host/scripts/07-unattended-upgrades.sh status"
+    "host/scripts/07-unattended-upgrades.sh hold"
+    "host/scripts/07-unattended-upgrades.sh release"
+    "host/scripts/07-unattended-upgrades.sh run-now"
+)
+
+fail() { echo; echo "FAILED: $*"; echo "Stopped."; exit 1; }
+ok()   { echo "ok    $*"; }
+[ "$(id -u)" = 0 ] || fail "run with sudo"
+CMD=${1:-}; [ $# -eq 1 ] || CMD=""
+
+git_as_owner() { runuser -u "$OWNER" -- git -C "$REPO" "$@"; }
+
+rule_text() {
+    local commit=$1 c first=1
+    echo "# Managed by $REPO/host/scripts/09-delegated-sudo.sh - do not edit by hand."
+    echo "# Snapshot of commit $commit in $SNAP (root-owned). Exact command lines only."
+    printf 'Cmnd_Alias DSSERVER_DELEGATED = '
+    for c in "${COMMANDS[@]}"; do
+        [ $first = 1 ] || printf ', \\\n    '
+        printf '%s' "$SNAP/$c"; first=0
+    done
+    echo
+    echo "$OWNER ALL=(root) NOPASSWD: DSSERVER_DELEGATED"
+}
+
+show() {
+    local commit; commit=$(git_as_owner rev-parse --short HEAD)
+    echo "Snapshot source: $REPO at commit $commit (committed content only)"
+    for f in "${FILES[@]}"; do echo "  $f -> $SNAP/$f"; done
+    echo; echo "Sudoers rule ($RULE):"; rule_text "$commit" | sed 's/^/  /'
+}
+
+install_all() {
+    command -v visudo >/dev/null || fail "visudo not found"
+    local commit; commit=$(git_as_owner rev-parse --short HEAD)
+    local dirty; dirty=$(git_as_owner status --porcelain -- "${FILES[@]}")
+    [ -z "$dirty" ] || echo "note  uncommitted changes in snapshot files are IGNORED (snapshot uses HEAD):
+$dirty"
+
+    # Build the snapshot next to the final location, then swap it in.
+    local tmp; tmp=$(mktemp -d "$SNAP.new.XXXXXX"); chmod 0755 "$tmp"
+    local f mode
+    for f in "${FILES[@]}"; do
+        mode=0644; [[ $EXEC_FILES == *" $f "* ]] && mode=0755
+        install -d -m 0755 -o root -g root "$tmp/$(dirname "$f")"
+        git_as_owner show "HEAD:$f" >"$tmp/$f" || { rm -rf -- "$tmp"; fail "$f not in HEAD"; }
+        chown root:root "$tmp/$f"; chmod "$mode" "$tmp/$f"
+    done
+    rm -rf -- "$SNAP"; mv "$tmp" "$SNAP"
+    [ "$(stat -c '%U %a' "$SNAP")" = "root 755" ] || fail "$SNAP ownership"
+    if find "$SNAP" ! -user root -o -perm /022 | grep -q .; then fail "$SNAP contains files not owned by root or group/world-writable"; fi
+    ok "snapshot of $commit in $SNAP:"
+    (cd "$SNAP" && sha256sum "${FILES[@]}" | sed 's/^/      /')
+
+    local rt; rt=$(mktemp)
+    rule_text "$commit" >"$rt"
+    visudo -cqf "$rt" || { rm -f "$rt"; fail "generated sudoers rule failed visudo check (nothing installed)"; }
+    install -m 0440 -o root -g root "$rt" "$RULE"; rm -f "$rt"
+    visudo -cq || { rm -f "$RULE"; fail "full sudoers check failed - rule removed again"; }
+    ok "installed $RULE (visudo OK)"
+    echo; echo "Allowed for $OWNER without password:"
+    runuser -u "$OWNER" -- sudo -n -l 2>/dev/null | sed -n '/NOPASSWD/,$p' | sed 's/^/  /' || true
+    echo; echo "09 INSTALL PASSED. Re-run 'install' after committing changes to the snapshot files."
+}
+
+remove() {
+    rm -f -- "$RULE"; rm -rf -- "$SNAP"
+    visudo -cq || fail "sudoers check failed after removal - inspect /etc/sudoers.d"
+    [ ! -e "$RULE" ] && [ ! -e "$SNAP" ] || fail "something is still present"
+    echo "09 REMOVE DONE: no delegated passwordless commands remain."
+}
+
+case $CMD in
+    show) show ;;
+    install) install_all ;;
+    remove) remove ;;
+    *) echo "usage: sudo bash $0 show|install|remove" >&2; exit 2 ;;
+esac

@@ -44,6 +44,7 @@ Restore each service's `.env` and `secrets/` from the backup (they aren't in Git
 | Step | Commands (as root, from `/srv/stacks/host/scripts`) | Record |
 |---|---|---|
 | Security updates | `sudo bash 07-unattended-upgrades.sh install`, then `… run-now` | host-config §9 |
+| Delegated sudo (optional) | `sudo bash 09-delegated-sudo.sh install` (after the repository is cloned and at the right commit) | host-config §11 |
 | Heartbeat | `sudo bash 08-health-heartbeat.sh install`, then `set-url` (the URL is on the check's page at healthchecks.io), `enable`, `test-fail`, `test-recover` | host-config §10 |
 
 ## 3. Data

@@ -322,7 +322,7 @@ Raw run logs aren't kept in Git. This section records what they showed.
 ---
 
 ## 9. Automatic security updates (A1): PREPARED, not yet executed
-Script `host/scripts/07-unattended-upgrades.sh` (steps: `preflight`, `install`, `verify`, `run-now`, `rollback`). It is independent of Docker and of any NAS.
+Script `host/scripts/07-unattended-upgrades.sh` (steps: `preflight`, `install`, `verify`, `run-now`, `hold`, `release`, `status`, `rollback`). It is independent of Docker and of any NAS.
 
 | Item | Setting |
 |---|---|
@@ -338,6 +338,8 @@ Script `host/scripts/07-unattended-upgrades.sh` (steps: `preflight`, `install`, 
 **Docker updates stay manual** (monthly, or when a Docker security advisory appears): `apt list --upgradable 2>/dev/null | grep -E 'docker|containerd'`, then plan an upgrade with the containers in mind.
 
 **Verify:** `sudo bash 07-unattended-upgrades.sh verify` checks the config values, timers, our files against the repository, the dry run's allowed origins (Debian-Security present, Docker absent) and that no Docker package is in its upgrade list. Logs: `/var/log/unattended-upgrades/`, `journalctl -u apt-daily-upgrade`.
+
+**Pause (`hold`) and resume (`release`):** `hold` stops `apt-daily-upgrade.timer` (it stays enabled, so a reboot resumes it) and writes the marker `/run/dsserver-a1-hold`. While held, `verify` prints a `WARN … PAUSED` line instead of failing, and `status` shows `PAUSED`. Package lists still refresh. Never leave a hold in place without a reason recorded here.
 
 **Rollback:** `sudo bash 07-unattended-upgrades.sh rollback` saves copies to `/root/dsserver-rollback/07-<time>/`, removes our two files, purges the package (which removes `20auto-upgrades` and `50unattended-upgrades`) and checks that periodic upgrades are off.
 
@@ -361,3 +363,17 @@ Design: `docs/monitoring-architecture.md`. Script `host/scripts/08-health-heartb
 **Known limits:** it can't tell a home internet outage from a server outage. It doesn't see a failed application on a healthy host. If Healthchecks.io is down, nothing is detected. The free plan has 20 checks and keeps 100 log entries per check.
 
 **Rollback:** `sudo bash 08-health-heartbeat.sh rollback` disables and removes the timer, service, program, test flag and the URL file. Then delete the check on healthchecks.io.
+
+## 11. Delegated sudo for approved scripts: PREPARED, not yet executed
+Script `host/scripts/09-delegated-sudo.sh` (`show`, `install`, `remove`). Purpose: Claude Code (running as daniel, without a terminal for a password) can run approved, scripted operations directly, **without** general passwordless root for daniel.
+
+| Item | Setting |
+|---|---|
+| Snapshot | `/usr/local/lib/dsserver-admin/` (root:root, 0755/0644): copies of the allowed scripts and the files they install, taken from **git HEAD** (committed content only). Repository edits change nothing until `install` is run again by you |
+| Rule | `/etc/sudoers.d/dsserver-delegated` (0440, visudo-checked): `daniel ALL=(root) NOPASSWD:` the **exact command lines** in `COMMANDS` (script path + one fixed argument). No wildcards, shells, editors or `systemctl` |
+| Currently allowed | `07-unattended-upgrades.sh` `preflight`, `install`, `verify`, `status`, `hold`, `release`, `run-now`. Not `rollback` |
+| Unchanged | daniel's normal `sudo` (with password); `env_reset`; root login disabled |
+
+**Risk accepted:** any process running as daniel can run exactly these commands without a password. Their worst effect is installing or upgrading packages from the signed Debian repositories (Docker excluded) and pausing/resuming the upgrade timer. Approval of *when* to run e.g. `run-now` stays with you; Claude asks first.
+
+**Extending it** (e.g. A2): add the files and command lines to `FILES`/`COMMANDS`, commit, then run `sudo bash 09-delegated-sudo.sh install` yourself. **Remove:** `sudo bash 09-delegated-sudo.sh remove`.

@@ -10,7 +10,14 @@
 #                                                   Docker excluded, reboot status
 #   sudo bash 07-unattended-upgrades.sh run-now     run one update + upgrade cycle now (installs pending
 #                                                   Debian updates), then show the result
+#   sudo bash 07-unattended-upgrades.sh hold        pause automatic upgrades: stop apt-daily-upgrade.timer
+#                                                   (stays enabled, so a reboot also resumes it) and leave
+#                                                   a visible marker; 'verify' and 'status' report PAUSED
+#   sudo bash 07-unattended-upgrades.sh release     resume automatic upgrades (start the timer, drop marker)
+#   sudo bash 07-unattended-upgrades.sh status      read-only: timers, hold state, reboot status
 #   sudo bash 07-unattended-upgrades.sh rollback    remove only what 'install' added (copies kept first)
+#
+# Delegated (passwordless) use runs a root-owned snapshot of this file, see 09-delegated-sudo.sh.
 #
 # Files: host/files/etc/apt/apt.conf.d/52dsserver-unattended-upgrades -> /etc/apt/apt.conf.d/
 #        host/bin/dsserver-reboot-needed                               -> /usr/local/sbin/
@@ -26,6 +33,7 @@ SRC_RBN=$REPO/host/bin/dsserver-reboot-needed
 DST_CONF=/etc/apt/apt.conf.d/52dsserver-unattended-upgrades
 DST_RBN=/usr/local/sbin/dsserver-reboot-needed
 AUTO=/etc/apt/apt.conf.d/20auto-upgrades
+HOLD=/run/dsserver-a1-hold
 EXPECTED_NEW_PKGS="python3-distro-info unattended-upgrades"
 DOCKER_PKGS="containerd.io docker-buildx-plugin docker-ce docker-ce-cli docker-ce-rootless-extras docker-compose-plugin"
 
@@ -90,9 +98,16 @@ verify() {
     ok "daily package lists + daily unattended upgrade; Automatic-Reboot=false"
 
     for t in apt-daily.timer apt-daily-upgrade.timer; do
-        [ "$(systemctl is-enabled "$t")" = enabled ] && [ "$(systemctl is-active "$t")" = active ] || fail "$t not enabled+active"
+        [ "$(systemctl is-enabled "$t")" = enabled ] || fail "$t not enabled"
+        if [ "$(systemctl is-active "$t")" != active ]; then
+            if [ "$t" = apt-daily-upgrade.timer ] && [ -f "$HOLD" ]; then
+                echo "WARN  $t PAUSED by 'hold' since $(cat "$HOLD"): automatic upgrades are NOT running. Resume with 'release'."
+            else
+                fail "$t not active"
+            fi
+        fi
     done
-    ok "apt-daily.timer and apt-daily-upgrade.timer enabled and active"
+    ok "apt-daily.timer and apt-daily-upgrade.timer enabled$([ -f "$HOLD" ] && echo ' (upgrade timer PAUSED)' || echo ' and active')"
 
     DRY=$(unattended-upgrade --dry-run --debug 2>&1) || fail "unattended-upgrade --dry-run failed:
 $DRY"
@@ -158,13 +173,44 @@ run_now() {
     echo; echo "07 RUN-NOW PASSED $(date -Is)"
 }
 
+hold() {
+    step "Hold: pause automatic upgrades"
+    systemctl stop apt-daily-upgrade.timer
+    date -Is >"$HOLD"
+    [ "$(systemctl is-active apt-daily-upgrade.timer)" != active ] || fail "timer still active"
+    echo "PAUSED: apt-daily-upgrade.timer stopped (still enabled; a reboot resumes it). Package lists still refresh."
+    echo "Resume with: release"
+}
+
+release() {
+    step "Release: resume automatic upgrades"
+    systemctl start apt-daily-upgrade.timer
+    rm -f -- "$HOLD"
+    [ "$(systemctl is-active apt-daily-upgrade.timer)" = active ] || fail "timer did not start"
+    systemctl list-timers apt-daily.timer apt-daily-upgrade.timer --no-pager
+    echo "RESUMED: automatic upgrades active"
+}
+
+status() {
+    step "Status (read-only)"
+    systemctl list-timers apt-daily.timer apt-daily-upgrade.timer --no-pager || true
+    if [ -f "$HOLD" ]; then echo "automatic upgrades: PAUSED since $(cat "$HOLD") (run 'release')"
+    elif [ "$(systemctl is-active apt-daily-upgrade.timer)" = active ]; then echo "automatic upgrades: ACTIVE"
+    else echo "automatic upgrades: timer INACTIVE without a hold marker - investigate"; fi
+    for f in /var/lib/apt/periodic/update-stamp /var/lib/apt/periodic/upgrade-stamp; do
+        echo "$f: $([ -f "$f" ] && date -r "$f" -Is || echo missing)"
+    done
+    [ -x "$DST_RBN" ] && { "$DST_RBN" || true; }
+}
+
 rollback() {
     step "Rollback: remove only what 'install' added"
     B=/root/dsserver-rollback/07-$(date +%Y%m%dT%H%M%S); install -d -m 0700 "$B"
     for f in "$DST_CONF" "$DST_RBN" "$AUTO" /etc/apt/apt.conf.d/50unattended-upgrades; do
         if [ -e "$f" ]; then cp -a "$f" "$B/"; echo "saved $f -> $B/"; fi
     done
-    rm -f -- "$DST_CONF" "$DST_RBN"
+    rm -f -- "$DST_CONF" "$DST_RBN" "$HOLD"
+    systemctl start apt-daily-upgrade.timer 2>/dev/null || true
     if installed unattended-upgrades; then
         DEBIAN_FRONTEND=noninteractive apt-get purge -y -q unattended-upgrades
     fi
@@ -179,6 +225,9 @@ case $CMD in
     install)   install_all ;;
     verify)    verify ;;
     run-now)   run_now ;;
+    hold)      hold ;;
+    release)   release ;;
+    status)    status ;;
     rollback)  rollback ;;
-    *) echo "usage: sudo bash $0 preflight|install|verify|run-now|rollback" >&2; exit 2 ;;
+    *) echo "usage: sudo bash $0 preflight|install|verify|run-now|hold|release|status|rollback" >&2; exit 2 ;;
 esac
