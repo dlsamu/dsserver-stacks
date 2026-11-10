@@ -14,6 +14,7 @@ Infrastructure configuration for **dsserver**, a home server: HP EliteDesk 800 G
 | `<service>/` | **One Compose project per service.** The directory name is the project name and the data directory name |
 | `templates/service/` | Copy this to start a new service |
 | `host/docs/` | Host configuration record |
+| `docs/` | Planning documents, e.g. [the replacement NAS requirements](docs/nas-replacement-requirements.md) |
 | `host/files/` | Copies of every host file we changed, laid out at their real paths |
 | `host/scripts/` | The reviewed scripts used to configure the host, in order (`01-` … `06-`); run them from a copy outside this directory |
 | `host/bin/appdata-init` | Creates a service's data directories under `/srv/appdata` from its `appdata.dirs` |
