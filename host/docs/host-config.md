@@ -296,6 +296,8 @@ Raw run logs aren't kept in Git. This section records what they showed.
 | 8 | Phase S prep | `appdata-init` could create early directories before rejecting a later bad line | The parent-order check moved into the validation pass, so nothing is created on error (tested) | Validate everything before the first change |
 | 9 | Phase S (S2) | `cp -a SRC/. DST/` made `/srv/stacks` 0775 for about 1 minute (**world-readable**) | Restored to 0750; script retired with an exit-1 guard; corrected pattern documented (§6) | Re-check permissions after every write into a protected directory |
 | 10 | Phase S (pre-S3) | The first secret scan was invalid: a pattern starting with `-----` was parsed as an option | Rerun with `git grep -e …`; detector confirmed on a planted key; result clean | Pass regexes with `-e`; check that a scanner can actually catch something |
+| 11 | A2 prep (2026-11-10) | `dsserver-reboot-needed --libs` first matched `.so` and `(deleted)` anywhere in a process's maps file, so memfd mappings (`/memfd:… (deleted)`) gave false positives (37 desktop processes) | The match is now per line: a `.so` file path ending in ` (deleted)`. A regression test was added | Match one line at a time, and test the negative case |
+| 12 | NAS (2026-11-09/10) | The DATASERVER investigation (read-only; no logins) was **suspended**: the NAS is frozen during the Replay photo backup | Findings are in `docs/nas-replacement-requirements.md`; replacement NAS ordered | Never probe DATASERVER or Replay until told otherwise |
 
 **Recovery instructions:** `RECOVERY.md`, using `host/scripts/01-…06-` in order. Each script stops on the first failed check and refuses to overwrite existing state.
 
@@ -310,3 +312,52 @@ Raw run logs aren't kept in Git. This section records what they showed.
 - The scratchpad that held the review scripts is in `/tmp` (tmpfs) and **is wiped at reboot**. Durable copies of all host scripts are in `host/scripts/`.
 - User IDs: daniel 1000, axel 1001. The 2000–2999 range is reserved for service containers (D4).
 - GitHub's SSH host key (from docs.github.com, checked 2026-11-09): Ed25519 `SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU`, ECDSA `SHA256:p2QAMXNIC1TJYWeIOttrVc98/R1BUFWu3/LiyKgUfQM`, RSA `SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s`.
+- **Listening sockets baseline** (2026-11-09 before and after Docker, unchanged 2026-11-10): TCP `0.0.0.0:22`, `[::]:22`, `127.0.0.1:631`/`[::1]:631` (CUPS, local only), `*:1716` (KDE Connect, kept for now); UDP `*:1716`, mDNS `5353`, DHCPv6 client `546` on `eno1`, plus a few ephemeral desktop UDP ports. Installing Docker added no listening socket.
+- **APT origins** (2026-11-10): `o=Debian` (trixie, trixie-updates, trixie-security) and `o=Docker` (download.docker.com trixie/stable). Nothing else.
+- **unattended-upgrades 2.12** (Debian trixie), inspected without installing: installing it brings only `python3-distro-info`. Its debconf question `enable_auto_updates` defaults to **true**, and postinst then creates `20auto-upgrades` (daily lists + daily upgrade) through ucf. The default `50unattended-upgrades` allows `origin=Debian,codename=trixie,label=Debian` (point releases) and `…label=Debian-Security` only, so **not** trixie-updates and **not** Docker. It also installs `unattended-upgrades.service` (finishes a running upgrade at shutdown), a logind drop-in `InhibitDelayMaxSec=30`, and a kernel postinst hook that creates `/run/reboot-required`. Purging removes `20auto-upgrades` and `50unattended-upgrades`.
+- **apt.systemd.daily** touches `/var/lib/apt/periodic/update-stamp` after a successful list update and `upgrade-stamp` after a successful unattended upgrade. Timers: `apt-daily` at 06:00/18:00 + up to 12 h random, `apt-daily-upgrade` at 06:00 + up to 60 min; both `Persistent=true`.
+- **Scratchpad inventory** (`/tmp/claude-1000/…/scratchpad`, tmpfs, kept until cleanup is approved): install logs for Docker, Phase U and Phase S (results recorded in §3–§6 and §7), the retired `phaseS-repo.sh`, port snapshots (above), and verification clones. Nothing in it is needed to rebuild the host.
+
+
+---
+
+## 9. Automatic security updates (A1): PREPARED, not yet executed
+Script `host/scripts/07-unattended-upgrades.sh` (steps: `preflight`, `install`, `verify`, `run-now`, `rollback`). It is independent of Docker and of any NAS.
+
+| Item | Setting |
+|---|---|
+| Package | `unattended-upgrades` 2.12 (+ `python3-distro-info`), `--no-install-recommends` |
+| Schedule | `20auto-upgrades` from the package: package lists daily, unattended upgrade daily (via `apt-daily*.timer`) |
+| Sources | package default: Debian point releases + Debian-Security for trixie. **Docker is not an allowed origin**; the Docker packages are also blacklisted as a second guard |
+| Reboot | **never automatic** (`Automatic-Reboot "false"`, `…-WithUsers "false"`) |
+| Mail | none (no MTA by design) |
+| Our files | `/etc/apt/apt.conf.d/52dsserver-unattended-upgrades` (copy in `host/files/`), `/usr/local/sbin/dsserver-reboot-needed` (from `host/bin/`) |
+
+**Is a reboot needed?** `dsserver-reboot-needed` (exit 1 = yes) reports `/run/reboot-required` (with packages) and a running kernel older than the newest installed. `dsserver-reboot-needed --libs` (with sudo) also lists processes still using replaced libraries; restarting those can be enough. A2 adds `reboot:required` as information to the heartbeat.
+
+**Docker updates stay manual** (monthly, or when a Docker security advisory appears): `apt list --upgradable 2>/dev/null | grep -E 'docker|containerd'`, then plan an upgrade with the containers in mind.
+
+**Verify:** `sudo bash 07-unattended-upgrades.sh verify` checks the config values, timers, our files against the repository, the dry run's allowed origins (Debian-Security present, Docker absent) and that no Docker package is in its upgrade list. Logs: `/var/log/unattended-upgrades/`, `journalctl -u apt-daily-upgrade`.
+
+**Rollback:** `sudo bash 07-unattended-upgrades.sh rollback` saves copies to `/root/dsserver-rollback/07-<time>/`, removes our two files, purges the package (which removes `20auto-upgrades` and `50unattended-upgrades`) and checks that periodic upgrades are off.
+
+## 10. Host health heartbeat (A2): PREPARED, not yet executed
+Design: `docs/monitoring-architecture.md`. Script `host/scripts/08-health-heartbeat.sh`; program `host/bin/dsserver-health`; units in `host/files/etc/systemd/system/`. Tests: `bash host/tests/test-dsserver-health.sh` (unprivileged; fakes; 47 checks).
+
+**How it works:** `dsserver-health.timer` (2 min after boot, then every 5 min) runs `dsserver-health --ping` as a sandboxed one-shot root service (60 s timeout, `MemoryMax=64M`, read-only system). It evaluates the host and sends **one** HTTPS request to Healthchecks.io: the success URL, or `/fail` if a host problem exists. Healthchecks emails the Gmail inbox when the state changes, and also when pings stop (period 5 min + grace 10 min).
+
+| Host problem (→ fail) | Information only |
+|---|---|
+| `failed_units` (any failed systemd unit except docker/containerd and itself), `disk_health` / `disk_unreadable` (smartctl -H), `disk_space` (root > 90%), `updates_stale` (no successful list update or upgrade in 72 h), `test` | `docker:<state>`; a deliberately stopped Docker is **not** a host failure. `reboot:required` |
+
+**Host vs application availability:** this check answers "is the host alive and healthy". Applications (including Docker and containers) get their **own** checks later: one Healthchecks check per critical service, or Beszel. Until then a Docker crash is logged locally and shown as `docker:failed` in the ping body, but does not alert.
+
+**Secrets and privacy:** the ping URL is in `/etc/dsserver-health/ping-url` (root 0600, directory 0700), entered with hidden input by `08 … set-url`, and not in Git. It reaches curl through a file descriptor, so it isn't on any command line or in `ps`, and it is never printed; curl's error text is discarded. The ping body contains only the codes above. Unit names, devices and percentages stay in the local journal: `journalctl -u dsserver-health`. curl: `--proto =https --tlsv1.2`, connect timeout 5 s, max 10 s per try, 2 retries, ≤ 30 s retrying.
+
+**Healthchecks.io setup (by you, in a browser):** sign up with the Gmail address (it only receives); turn on two-factor login; create the check `dsserver-host`: Simple schedule, period **5 minutes**, grace **10 minutes**, integration **Email** (the account address). Copy its ping URL in the `https://hc-ping.com/<uuid>` form.
+
+**Order:** `preflight` → `install` → (create the check) → `set-url` → `enable` → `test-fail` (expect a "down" email) → `test-recover` (expect "up") → optionally `test-silence` / wait 15+ min (expect "down") → `test-resume` (expect "up"). Tests touch only the heartbeat.
+
+**Known limits:** it can't tell a home internet outage from a server outage. It doesn't see a failed application on a healthy host. If Healthchecks.io is down, nothing is detected. The free plan has 20 checks and keeps 100 log entries per check.
+
+**Rollback:** `sudo bash 08-health-heartbeat.sh rollback` disables and removes the timer, service, program, test flag and the URL file. Then delete the check on healthchecks.io.

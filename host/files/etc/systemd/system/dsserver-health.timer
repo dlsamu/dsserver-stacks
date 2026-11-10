@@ -1,0 +1,12 @@
+# Every 5 minutes, starting 2 minutes after boot. Installed by host/scripts/08-health-heartbeat.sh.
+[Unit]
+Description=dsserver host health heartbeat every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=15s
+Unit=dsserver-health.service
+
+[Install]
+WantedBy=timers.target

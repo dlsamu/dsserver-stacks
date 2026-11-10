@@ -1,0 +1,160 @@
+#!/bin/bash
+# dsserver-health: host health state plus an external heartbeat to Healthchecks.io.
+# Installed by host/scripts/08-health-heartbeat.sh as /usr/local/sbin/dsserver-health and run every
+# 5 minutes by dsserver-health.timer. Design: host/docs/host-config.md §10, docs/monitoring-architecture.md.
+#
+# Usage:
+#   dsserver-health --ping      evaluate, log the details locally, send ONE HTTPS ping (the timer uses this)
+#   dsserver-health --report    evaluate and print the details locally; no network access
+#   dsserver-health --dry-run   like --report, and also print the exact body that --ping would send
+# Exit status: --ping 0 = ping delivered (whatever the health state), 1 = not delivered or not configured.
+#              --report/--dry-run 0 = healthy, 1 = a host problem was found.
+#
+# HOST problems -> a failure ping (Healthchecks marks the check down and sends an email):
+#   failed_units     a failed systemd unit, EXCEPT the application layer (docker/containerd) and itself
+#   disk_health      smartctl -H reports a failing disk or failing pre-fail attributes
+#   disk_unreadable  a disk smartctl lists can't be opened or checked (smartctl exit bits 0/1)
+#                    (exit bits 6/7, old error-log or self-test entries, are logged locally only)
+#   disk_space       the root filesystem is above 90% full
+#   updates_stale    no successful package-list update or unattended upgrade in 72 hours
+#   test             the test flag /run/dsserver-health-test-fail exists (see 08-health-heartbeat.sh)
+# INFORMATION only (in the ping body, never a failure):
+#   docker:<active|inactive|failed|...>  a deliberately stopped Docker is not a host failure
+#   reboot:required                      from dsserver-reboot-needed
+#
+# Privacy: the ping body contains only the codes above. Unit names, disk models, paths and
+# percentages stay in the local journal (journalctl -u dsserver-health). The ping URL is read from
+# a root-only file, passed to curl through a file descriptor (never on the command line, so it
+# never shows up in `ps`), and never printed; curl's own error text is discarded.
+#
+# Test overrides: the DSH_* variables below are honoured only when NOT running as root.
+set -uo pipefail
+
+CONF=/etc/dsserver-health/ping-url
+TEST_FLAG=/run/dsserver-health-test-fail
+STAMP_DIR=/var/lib/apt/periodic
+SYSTEMCTL=systemctl; SMARTCTL=smartctl; CURL=curl; REBOOT_NEEDED=/usr/local/sbin/dsserver-reboot-needed
+DF_TARGET=/
+DISK_MAX_PCT=90
+STALE_HOURS=72
+EXPECT_OWNER=0
+if [ "$(id -u)" != 0 ]; then
+    CONF=${DSH_CONF:-$CONF}; TEST_FLAG=${DSH_TEST_FLAG:-$TEST_FLAG}; STAMP_DIR=${DSH_STAMP_DIR:-$STAMP_DIR}
+    SYSTEMCTL=${DSH_SYSTEMCTL:-$SYSTEMCTL}; SMARTCTL=${DSH_SMARTCTL:-$SMARTCTL}; CURL=${DSH_CURL:-$CURL}
+    REBOOT_NEEDED=${DSH_REBOOT_NEEDED:-$REBOOT_NEEDED}; DF_TARGET=${DSH_DF_TARGET:-$DF_TARGET}
+    DISK_MAX_PCT=${DSH_DISK_MAX_PCT:-$DISK_MAX_PCT}; EXPECT_OWNER=$(id -u)
+fi
+# Units that belong to the application layer: reported, never a host failure.
+APP_UNITS_RE='^(docker\.service|docker\.socket|containerd\.service|dsserver-health\.service)$'
+URL_RE='^https://hc-ping\.com/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+
+MODE=${1:-}
+case $MODE in --ping|--report|--dry-run) ;; *) echo "usage: $0 --ping|--report|--dry-run" >&2; exit 2 ;; esac
+[ $# -eq 1 ] || { echo "usage: $0 --ping|--report|--dry-run" >&2; exit 2; }
+
+PROBLEMS=()   # external codes
+INFO=()       # external codes
+DETAILS=()    # local only
+problem() { local c
+    for c in "${PROBLEMS[@]}"; do [ "$c" = "$1" ] && { DETAILS+=("$2"); return; }; done
+    PROBLEMS+=("$1"); DETAILS+=("$2"); }
+
+# 1. failed systemd units (host layer only)
+if FAILED=$("$SYSTEMCTL" list-units --state=failed --plain --no-legend --no-pager 2>/dev/null); then
+    while read -r unit _; do
+        [ -n "$unit" ] || continue
+        if [[ $unit =~ $APP_UNITS_RE ]]; then DETAILS+=("application-layer unit failed (not a host failure): $unit")
+        else problem failed_units "failed unit: $unit"; fi
+    done <<<"$FAILED"
+else
+    problem failed_units "could not list systemd units"
+fi
+
+# 2. disk health
+if SCAN=$("$SMARTCTL" --scan 2>/dev/null) && [ -n "$SCAN" ]; then
+    while read -r dev _ type _; do
+        [ -n "$dev" ] || continue
+        # Don't wake sleeping ATA/USB disks (standby,0 = skip with exit 0); NVMe has no standby check.
+        if [ "$type" = nvme ]; then "$SMARTCTL" -H -d "$type" "$dev" >/dev/null 2>&1; rc=$?
+        else "$SMARTCTL" -H -n standby,0 -d "$type" "$dev" >/dev/null 2>&1; rc=$?; fi
+        if   (( rc & (1|2) ));   then problem disk_unreadable "smartctl could not check $dev (rc=$rc)"
+        elif (( rc & (8|16) ));  then problem disk_health "smartctl reports $dev failing (rc=$rc)"
+        elif (( rc & ~(64|128) & 255 )); then DETAILS+=("smartctl $dev rc=$rc (no health failure)")
+        else DETAILS+=("disk $dev health OK (rc=$rc)"); fi
+    done <<<"$SCAN"
+else
+    problem disk_unreadable "smartctl --scan found no disks or failed"
+fi
+
+# 3. root filesystem space
+if DF=$(df -P "$DF_TARGET" 2>/dev/null); then
+    PCT=$(awk 'NR==2 {sub("%","",$5); print $5}' <<<"$DF")
+    if [[ $PCT =~ ^[0-9]+$ ]]; then
+        if [ "$PCT" -gt "$DISK_MAX_PCT" ]; then problem disk_space "root filesystem ${PCT}% used (limit ${DISK_MAX_PCT}%)"
+        else DETAILS+=("root filesystem ${PCT}% used"); fi
+    else problem disk_space "could not parse df output"; fi
+else
+    problem disk_space "df failed"
+fi
+
+# 4. security updates actually running (stamps written by apt.systemd.daily on success only)
+NOW=$(date +%s)
+for s in update-stamp upgrade-stamp; do
+    f=$STAMP_DIR/$s
+    if [ -f "$f" ]; then
+        AGE=$(( (NOW - $(stat -c %Y "$f")) / 3600 ))
+        if [ "$AGE" -ge "$STALE_HOURS" ]; then problem updates_stale "$s is ${AGE}h old (limit ${STALE_HOURS}h)"
+        else DETAILS+=("$s ${AGE}h old"); fi
+    else
+        problem updates_stale "$f missing (unattended-upgrades not installed or never succeeded)"
+    fi
+done
+
+# 5. explicit test flag (regular file, owned by root in production)
+if [ -e "$TEST_FLAG" ] || [ -L "$TEST_FLAG" ]; then
+    if [ -f "$TEST_FLAG" ] && [ ! -L "$TEST_FLAG" ] && [ "$(stat -c %u "$TEST_FLAG")" = "$EXPECT_OWNER" ]; then
+        problem test "test flag $TEST_FLAG present"
+    else
+        DETAILS+=("ignored $TEST_FLAG: not a regular file owned by the expected user")
+    fi
+fi
+
+# information: Docker state and reboot need
+DOCKER=$("$SYSTEMCTL" is-active docker.service 2>/dev/null); DOCKER=${DOCKER:-unknown}
+[[ $DOCKER =~ ^[a-z-]+$ ]] || DOCKER=unknown
+INFO+=("docker:$DOCKER")
+if [ -x "$REBOOT_NEEDED" ]; then
+    if ! RB=$("$REBOOT_NEEDED" 2>/dev/null); then INFO+=("reboot:required"); DETAILS+=("$RB"); fi
+fi
+
+IFS=,
+if [ "${#PROBLEMS[@]}" -gt 0 ]; then STATUS=fail; BODY="status=fail problems=${PROBLEMS[*]} info=${INFO[*]}"
+else STATUS=ok; BODY="status=ok info=${INFO[*]}"; fi
+unset IFS
+
+if [ "$MODE" != --ping ]; then
+    echo "dsserver-health: $STATUS"
+    for d in "${DETAILS[@]}"; do echo "  $d"; done
+    [ "$MODE" = --dry-run ] && echo "would send: $BODY  (to the ${STATUS/ok/success} endpoint)"
+    [ "$STATUS" = ok ]; exit $?
+fi
+
+# --ping: details go to the local journal only
+for d in "${DETAILS[@]}"; do echo "detail: $d"; done
+
+if [ ! -f "$CONF" ] || [ -L "$CONF" ]; then echo "NOT SENT: $CONF missing"; exit 1; fi
+PERM=$(stat -c '%u %a' "$CONF")
+[ "$PERM" = "$EXPECT_OWNER 600" ] || { echo "NOT SENT: $CONF must be owner uid $EXPECT_OWNER mode 600 (is: $PERM)"; exit 1; }
+URL=$(head -c 200 "$CONF" | tr -d '\r\n')
+[[ $URL =~ $URL_RE ]] || { echo "NOT SENT: $CONF does not contain a valid https://hc-ping.com/<uuid> URL"; exit 1; }
+[ "$STATUS" = fail ] && URL=$URL/fail
+
+"$CURL" --config /dev/fd/3 3<<<"url = \"$URL\"" \
+    --proto '=https' --tlsv1.2 --fail --silent --show-error --output /dev/null \
+    --connect-timeout 5 --max-time 10 --retry 2 --retry-delay 5 --retry-max-time 30 --retry-connrefused \
+    --user-agent dsserver-health --data-raw "$BODY" 2>/dev/null
+RC=$?
+unset URL
+if [ "$RC" = 0 ]; then echo "sent: $BODY"; exit 0; fi
+echo "NOT SENT: curl exit code $RC; body was: $BODY"
+exit 1

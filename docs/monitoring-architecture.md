@@ -1,6 +1,6 @@
 # Monitoring and alerting architecture
 
-Status: **design, not deployed** (2026-11-10). Nothing in this document is installed yet; each part is a separate approved increment (see [roadmap.md](roadmap.md)).
+Status: **design, not deployed** (2026-11-10). The heartbeat (A2) is implemented and tested offline in `host/bin/dsserver-health`; see host-config §10. Nothing in this document is installed yet; each part is a separate approved increment (see [roadmap.md](roadmap.md)).
 
 **Principle:** dsserver is a general-purpose server that also has monitoring, not a monitoring platform. Monitoring stays small, uses bounded resources and storage, and never becomes a dependency of anything else.
 
@@ -27,13 +27,13 @@ Final resource limits are set **only after** a 48-hour benchmark (§8).
 |---|---|---|---|---|
 | **Outage detection (outside dsserver)** | **Healthchecks.io** (hosted, free plan: 20 checks) | external service | no | It is the only thing that can notice that dsserver is completely gone |
 | Host heartbeat and health | `dsserver-health.timer`, a small script plus systemd timer | native, root, every 5 min | **no** | Proves the host, its network and systemd are alive, so it must keep working when Docker is broken |
-| Disk health | `smartd` (already running) | native | no | The established tool; Beszel's S.M.A.R.T. needs extra privileges (§6) |
+| Disk health | `smartctl -H` in the heartbeat (`smartd` keeps running) | native | no | The established tool; Beszel's S.M.A.R.T. needs extra privileges (§6) |
 | Security updates | `unattended-upgrades` (planned) | native | no | Essential host function |
 | Metrics, history, dashboard, threshold alerts | **Beszel hub** | Docker Compose, `/srv/stacks/beszel`, data in `/srv/appdata/beszel` | yes | An ordinary application |
 | Host metrics collection | **Beszel agent** | **native** systemd service, user `beszel`, our own unit file | no | It sees the whole host (filesystems, sensors, systemd) without privileged container mounts |
 
 **Alert flow**, deliberately with only two channels and no overlap:
-- **Host-critical problems → Healthchecks.io → email to the Gmail inbox** (receive only). These are: dsserver down, internet down, failed systemd units (including the update service), a disk-health failure, and a full root disk. The heartbeat script reports a single *state* (ok or fail, with the reason in the ping body), so the alert clears itself when the problem goes away. No SMTP is configured on dsserver.
+- **Host-critical problems → Healthchecks.io → email to the Gmail inbox** (receive only). These are: dsserver down, internet down, failed host systemd units (Docker/containerd excluded: they are the application layer), a disk-health failure, a full root disk, and updates not running. The heartbeat script reports a single *state* (ok or fail, with only short reason codes in the ping body; details stay in the local journal), so the alert clears itself when the problem goes away. No SMTP is configured on dsserver.
 - **Metric thresholds and other hosts → Beszel → a push channel** (ntfy, Telegram or Pushover; **your decision**). These are: CPU, memory, disk, temperature, container health, and up/down for future hosts. Beszel has no email channel that works without SMTP.
 - **Beszel itself** sends its own heartbeat to a second Healthchecks check, so a dead monitoring stack raises an email too.
 
@@ -119,10 +119,10 @@ Version checked: **v0.21.1** (2026-10-22), MIT licence, about 27k GitHub stars, 
 |---|---|---|
 | dsserver powered off, kernel hang, network cable out | Healthchecks (heartbeat missing) | Takes up to 5 min plus the grace period |
 | Internet down at home | Healthchecks (heartbeat missing) | **Can't be told apart** from the server being down; check the other devices |
-| Docker daemon dead | Heartbeat state = fail (`docker.service` failed), and Beszel stops | The heartbeat doesn't depend on Docker |
+| Docker daemon dead or deliberately stopped | Reported as `docker:<state>` in the heartbeat (information, **not** a host failure); Beszel stops | The heartbeat doesn't depend on Docker. Alerting on applications (including Docker) comes from separate application checks later (one Healthchecks check per critical service, or Beszel) |
 | Beszel hub dead | Second Healthchecks check (hub heartbeat missing) | |
 | An application down, host fine | Beszel container-health alert, or a failed systemd unit | **The heartbeat alone can't see this.** A service without a health check is invisible; every service needs one (README convention 2) |
-| Disk failing | smartd → heartbeat state = fail | Already-failing drives are reported as soon as smartd checks |
+| Disk failing | `smartctl -H` in the heartbeat → state = fail (`disk_health`) | Checked every 5 min; smartd keeps running for its own logging |
 | Security updates failing | Heartbeat state = fail (failed unit, or update log too old) | |
 | Disk full | Heartbeat (root above 90%) and a Beszel disk alert | Both: the heartbeat covers it if Beszel is dead |
 | Healthchecks.io itself down | Not detected | Accepted risk; also note its **100-entry ping log** and **20-check limit** on the free plan |

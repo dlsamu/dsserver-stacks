@@ -1,0 +1,31 @@
+# dsserver host health + external heartbeat (Healthchecks.io). Installed by host/scripts/08-health-heartbeat.sh.
+# Record: /srv/stacks/host/docs/host-config.md §10. Runs natively; does not depend on Docker.
+[Unit]
+Description=dsserver host health heartbeat
+Documentation=man:systemd.timer(5)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/dsserver-health --ping
+TimeoutStartSec=60
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=64M
+# Root is needed for smartctl on the NVMe disk; everything else is read-only.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native

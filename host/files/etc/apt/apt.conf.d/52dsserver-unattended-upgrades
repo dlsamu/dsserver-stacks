@@ -1,0 +1,23 @@
+// dsserver: local settings for unattended-upgrades. Installed by host/scripts/07-unattended-upgrades.sh.
+// Record: /srv/stacks/host/docs/host-config.md §9.
+// Sources stay at the Debian package default (50unattended-upgrades): Debian stable point
+// releases and Debian-Security for this codename. Docker's repository (origin "Docker") is NOT an
+// allowed origin; Docker is updated by hand.
+
+// Never reboot automatically; dsserver-reboot-needed reports when a manual reboot is due.
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
+
+// Belt and braces: even if an origin pattern were ever widened, never touch the Docker packages.
+Unattended-Upgrade::Package-Blacklist {
+    "docker-ce$";
+    "docker-ce-cli$";
+    "docker-ce-rootless-extras$";
+    "docker-buildx-plugin$";
+    "docker-compose-plugin$";
+    "docker-model-plugin$";
+    "containerd\.io$";
+};
+
+// No mail (no MTA on this host by design); results are in /var/log/unattended-upgrades/ and the journal.
+Unattended-Upgrade::Mail "";

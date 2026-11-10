@@ -1,0 +1,75 @@
+#!/bin/bash
+# dsserver-reboot-needed: say whether a manual reboot is needed after updates. Read-only.
+# Installed by host/scripts/07-unattended-upgrades.sh as /usr/local/sbin/dsserver-reboot-needed.
+#
+# Usage:  dsserver-reboot-needed [--quiet] [--libs]
+#   exit 0 = no reboot needed, 1 = reboot needed, 2 = usage error
+#   --quiet  print nothing, only the exit status
+#   --libs   also list processes still using deleted (replaced) shared libraries. This is
+#            informational only; restarting those services can be enough. Needs sudo to see
+#            every process.
+#
+# Reasons it reports:
+#   1. /run/reboot-required exists (kernel and some core packages create it; the
+#      unattended-upgrades package adds a kernel postinst hook that creates it too)
+#   2. the running kernel is older than the newest kernel installed in /boot
+# Test overrides (ignored when run as root): RBN_RUN_DIR, RBN_BOOT_DIR, RBN_UNAME_R
+set -uo pipefail
+
+RUN_DIR=/run; BOOT_DIR=/boot; RUNNING=$(uname -r)
+if [ "$(id -u)" != 0 ]; then
+    RUN_DIR=${RBN_RUN_DIR:-$RUN_DIR}; BOOT_DIR=${RBN_BOOT_DIR:-$BOOT_DIR}; RUNNING=${RBN_UNAME_R:-$RUNNING}
+fi
+
+QUIET=no; LIBS=no
+for a in "$@"; do
+    case $a in
+        --quiet) QUIET=yes ;;
+        --libs)  LIBS=yes ;;
+        *) echo "usage: $0 [--quiet] [--libs]" >&2; exit 2 ;;
+    esac
+done
+say() { [ "$QUIET" = yes ] || echo "$@"; }
+
+REASONS=()
+if [ -e "$RUN_DIR/reboot-required" ]; then
+    PKGS=""
+    [ -r "$RUN_DIR/reboot-required.pkgs" ] && PKGS=$(sort -u "$RUN_DIR/reboot-required.pkgs" | tr '\n' ' ')
+    REASONS+=("$RUN_DIR/reboot-required is present${PKGS:+ (packages: ${PKGS% })}")
+fi
+
+shopt -s nullglob
+KERNELS=()
+for k in "$BOOT_DIR"/vmlinuz-*; do KERNELS+=("${k##*/vmlinuz-}"); done
+shopt -u nullglob
+if [ "${#KERNELS[@]}" -gt 0 ]; then
+    NEWEST=$(printf '%s\n' "${KERNELS[@]}" | sort -V | tail -n 1)
+    if [ "$NEWEST" != "$RUNNING" ]; then
+        REASONS+=("running kernel $RUNNING, newest installed $NEWEST")
+    fi
+fi
+
+if [ "${#REASONS[@]}" -gt 0 ]; then
+    say "REBOOT NEEDED:"
+    for r in "${REASONS[@]}"; do say "  - $r"; done
+    RC=1
+else
+    say "no reboot needed (kernel $RUNNING)"
+    RC=0
+fi
+
+if [ "$LIBS" = yes ] && [ "$QUIET" = no ]; then
+    echo "processes using deleted shared libraries (informational):"
+    FOUND=0
+    for m in /proc/[0-9]*/maps; do
+        # one mapping line must be a shared library file that was deleted (replaced by an update);
+        # memfd/shm mappings such as "/memfd:x (deleted)" are not libraries and don't count
+        if grep -qE '/[^ ]+\.so(\.[0-9]+)*( \(deleted\))$' "$m" 2>/dev/null; then
+            p=${m#/proc/}; p=${p%/maps}
+            echo "  $p $(cat "/proc/$p/comm" 2>/dev/null)"
+            FOUND=1
+        fi
+    done
+    [ "$FOUND" = 1 ] || echo "  none visible$([ "$(id -u)" = 0 ] || echo ' (run with sudo to see all processes)')"
+fi
+exit "$RC"

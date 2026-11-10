@@ -1,6 +1,6 @@
 # Rebuilding dsserver from scratch
 
-For: a dead disk, a reinstall, or replacement hardware. Each step references the detailed record in `host/docs/host-config.md`. **Copy scripts to a temporary directory before running them with sudo**, so root never writes logs into the repository.
+For: a dead disk, a reinstall, or replacement hardware. Each step references the detailed record in `host/docs/host-config.md`. **Copy scripts to a temporary directory before running them with sudo**, so root never writes logs into the repository. (Scripts 07 and 08 are the exception: they write nothing into the repository and run in place.)
 
 ## 0. Prerequisites
 - Debian 13 (trixie) netinstall, with KDE Plasma and an SSH server. First user: `daniel`, member of `sudo`.
@@ -39,6 +39,12 @@ git -C /srv/stacks config user.email "ahdanielsamuelsson@gmail.com"
 git -C /srv/stacks config core.hooksPath .githooks
 ```
 Restore each service's `.env` and `secrets/` from the backup (they aren't in Git).
+
+## 2b. Host services that come from this repository
+| Step | Commands (as root, from `/srv/stacks/host/scripts`) | Record |
+|---|---|---|
+| Security updates | `sudo bash 07-unattended-upgrades.sh install`, then `… run-now` | host-config §9 |
+| Heartbeat | `sudo bash 08-health-heartbeat.sh install`, then `set-url` (the URL is on the check's page at healthchecks.io), `enable`, `test-fail`, `test-recover` | host-config §10 |
 
 ## 3. Data
 - Restore `/srv/appdata` from the backup with owners and permissions preserved (backup phase documents the exact command).
