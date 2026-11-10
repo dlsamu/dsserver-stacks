@@ -1,0 +1,23 @@
+#cloud-config
+# Beacon (Raspberry Pi 5, 8 GB): headless first boot for Raspberry Pi OS Lite 64-bit (trixie, cloud-init).
+# Written to the boot partition by beacon/flash-sd.sh. Public key only; no passwords or secrets.
+hostname: beacon
+manage_etc_hosts: true
+timezone: Europe/Stockholm
+users:
+  - name: daniel
+    groups: users,adm,dialout,audio,netdev,video,plugdev,cdrom,games,input,gpio,spi,i2c,render,sudo
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAbYfuMTROeC1htABaDqG8IujhFVNUUNISRdIOL0H9Qr daniel@dsserver -> beacon (admin)
+# SSH: three independent switches, so one unsupported key can't leave Beacon unreachable:
+# enable_ssh (Raspberry Pi's cloud-init key, as written by Imager 2), the boot-partition `ssh`
+# flag file (created by flash-sd.sh), and an explicit runcmd.
+enable_ssh: true
+ssh_pwauth: false
+disable_root: true
+runcmd:
+  - [systemctl, enable, --now, ssh]
+# Networking: the image's own network-config is kept (wired Ethernet, DHCP, NetworkManager).
