@@ -24,6 +24,7 @@ Raspberry Pi 5 (8 GB), Raspberry Pi OS Lite 64-bit (Debian 13 trixie), 128 GB mi
 | Docker metrics | `compose/socket-proxy` (wollomatic/socket-proxy 1.13.2) on each Docker host | Allows only `GET /version`, `/info`, `/containers/json`, `/containers/<id>/stats`. Everything else is refused (403/405), including inspect (environment variables), logs, archive/export, exec and every write. The socket `/run/beszel-docker/docker.sock` sits in a 0750 directory owned by uid 64001 and group `beszel`, so only the agent can open it. No network, read-only, no capabilities |
 | Firewall | Beacon, native nftables `firewall/` (`beacon-firewall.service`) | Incoming dropped by default; SSH 22, hub 8090 and mDNS allowed from 192.168.68.0/24 only. `nftables.service` stays disabled (its config flushes Docker's rules) |
 | OS | native | unattended-upgrades (Debian + Raspberry Pi archive), no automatic reboot; sshd key-only, `AllowUsers daniel`; journald capped at 500 MB; memory cgroup enabled (`cgroup_enable=memory` in `cmdline.txt`, needed for container memory figures and limits) |
+| API automation | `scripts/bz` on dsserver → `beszel_api.py` on Beacon, account `automation@beacon.lan` (role user) | See "Automation (API)" |
 | Detecting a dead Beacon | the hub's built-in heartbeat (POST every 60 s) → Healthchecks.io check `beacon` (period 5 min, grace 10 min) → email | **Active** since 2026-11-11 08:11; set with `scripts/set-heartbeat.sh` |
 
 ## Access
@@ -79,6 +80,32 @@ Each alert sends a recovery message when it clears. Beszel can't announce that B
 - **New Synology NAS:** reachability first (ping and TCP 5001 network monitors on beacon), plus DSM's own notifications for disks, pools and scrubs. The Synology Beszel package is optional later.
 - **Replay and devices you don't want to touch:** a ping or TCP network monitor only, no agent, and no Status alert for devices that are normally off.
 
+## Automation (API)
+Claude (or you) administers Beszel from dsserver with **`bash /srv/stacks/beacon/scripts/bz <command>`**, through Beszel's own REST API (PocketBase). No dashboard, no extra service or port.
+
+| Item | Setting |
+|---|---|
+| Identity | `automation@beacon.lan`, Beszel role **`user`** (not `admin`, not a PocketBase superuser). Created 2026-11-11 by `scripts/setup-automation.sh` → `bootstrap_automation.py` |
+| Why `user` is enough | non-`readonly` users may create/change/delete systems, agent tokens and network checks and read all metrics; `admin` only adds heartbeat status and config export. ntfy.sh is a public address, so its alerts are delivered for a `user`-role owner too |
+| Reaching all systems | hub env `SHARE_ALL_SYSTEMS=true` (`compose/beszel/compose.yaml`): every signed-in account may see/manage every system. Only two accounts exist (yours and automation) |
+| Credential | random password in **`/root/beszel-automation/credentials`** on Beacon (root 0600, dir 0700). Never copied to dsserver, Git, logs or chat; never in a command line |
+| Each call | `bz` runs `ssh beacon sudo python3 -I /srv/beacon/scripts/beszel_api.py METHOD PATH` (body on stdin). It logs in, uses the session token once in memory, and drops it (nothing cached). Hub on 127.0.0.1:8090 only |
+| Output | tokens, passwords, agent fingerprints, notification URLs (the ntfy topic) and Healthchecks URLs are replaced by `<redacted>` |
+| Notifications of its own alerts | the account has its own notification settings: a copy of the ntfy URL, e-mail off |
+
+**Commands:** `systems`, `alerts`, `monitors`, `set-alert SYSTEM TYPE VALUE MIN`, `del-alert SYSTEM TYPE`, `add-system NAME HOST` (writes `~/.beszel-agent-NAME.env`, 0600, for the agent installer), `remove-system NAME --yes`, `pause NAME`, `resume NAME`, `test-notify`, `api METHOD /api/...` (anything else in the [PocketBase API](https://pocketbase.io/docs/api-records/); body on stdin).
+
+**Limits:**
+- **Alerts belong to the account that created them.** Your 13 alert rules are owned by your dashboard account, so `bz` cannot see or change them (Beszel's rule `user = @request.auth.id`); `bz alerts`/`set-alert` act on the automation account's own rules. Ownership transfer is a separate, not yet approved step.
+- Your notification settings and account can't be changed by it (by design); creating or deleting **accounts** needs a superuser (Beszel has no other mechanism).
+- Heartbeat status/test and config export need role `admin` (not granted).
+
+**Rotate the password** (Beacon, root): needs a temporary superuser like the bootstrap: simplest is revoke + bootstrap again (below); alerts owned by the automation account would be lost, so list them first (`bz alerts`).
+
+**Revoke:** 1. Dashboard → `http://beacon.local:8090/_/` (your login) → Collections → *users* → `automation@beacon.lan` → Delete (this ends all its sessions and deletes its own alerts and notification settings). 2. `ssh beacon 'sudo rm -r /root/beszel-automation'`. 3. Optional: remove `SHARE_ALL_SYSTEMS` from `compose/beszel/compose.yaml` and run `scripts/deploy.sh`. To start over afterwards: `bash /srv/stacks/beacon/scripts/setup-automation.sh`.
+
+**Bootstrap safety (how the account was made):** a temporary superuser with a random password is created with Beszel's CLI, used for the account and its notification settings only, deleted in a `finally` block and verified gone (superuser list equal to the snapshot; its login refused). A read-only snapshot of alerts, your account, notification settings, systems, network checks, agent tokens and history counts is compared before/after.
+
 ## Recovery
 | Situation | What to do |
 |---|---|
@@ -107,6 +134,7 @@ Each alert sends a recovery message when it clears. Beszel can't announce that B
 - 2026-11-11 08:11: Healthchecks heartbeat enabled (`set-heartbeat.sh`); check `beacon` green (confirmed by you).
 - 2026-11-11 08:27: dsserver agent 0.21.1 + socket proxy installed (`13-beszel-agent.sh install`), system resumed in Beszel. Admin password moved to Bitwarden; plaintext files deleted.
 - 2026-11-11 09:21: ntfy titles fixed; Beacon outage detection and dsserver alert/recovery tested.
+- 2026-11-11 09:37–09:48: `SHARE_ALL_SYSTEMS=true` (hub recreated); automation account bootstrapped by you (`BOOTSTRAP DONE`) and tested through the API.
 
 ## Verification
 **Tested 2026-11-10 (Beacon):**
@@ -127,6 +155,15 @@ Each alert sends a recovery message when it clears. Beszel can't announce that B
 - **dsserver alert:** disk threshold lowered to 1 % at 08:32:14 → ntfy 08:32:49; restored to 85 %/10 min → recovery 08:39:49 (both seen on ntfy.sh). All 13 rules back at their values, none firing
 - **dsserver crash recovery** (`13-beszel-agent.sh test-recovery`): agent SIGKILL → restarted by systemd in 11 s and reconnected; proxy SIGKILL → restarted by Docker in < 1 s (restart count 0 → 1), allowlist unchanged, container data continued
 - **after the tests:** no failed units on either host; dsserver firewall, Tailscale, Docker and the A2 heartbeat unchanged and active; Beacon heartbeat still sending
+
+**Tested 2026-11-11, API automation (all against the running hub):**
+- credential dir/file on Beacon root 0700/0600; accounts: yours (`admin`) + `automation@beacon.lan` (`user`, verified); 1 superuser (yours; the temporary one is gone)
+- read: own account, `systems` (both up, live CPU/mem/disk), `monitors` (5 checks), containers, systemd services (108 records), hub info, own notification settings (redacted)
+- refused as intended: your alerts are invisible to it (0 listed); `/api/beszel/heartbeat-status` → 403
+- write: created alert dsserver CPU 99 %/60 min (owner automation) → listed → changed to 95 % → deleted → gone
+- the 13 existing alerts: all still owned by your account, none firing, content digest identical before and after (`fa8d7ea715cc`); alert history unchanged (4)
+- `bz test-notify` → Beszel "Test Alert" reached ntfy.sh 09:46:34
+- afterwards: both systems up; `13-beszel-agent.sh verify` passed; no failed units on either host; hub healthy, 0 error lines; heartbeat still every 60 s (09:46:39, 09:47:44)
 
 **Start at boot (dsserver), checked but not rebooted:** `beszel-agent.service` enabled (multi-user.target, `Restart=always`), `docker.service` enabled, proxy `restart: unless-stopped`, tmpfiles entry recreates `/run/beszel-docker` before Docker starts. The same set-up survived a real reboot on Beacon.
 
