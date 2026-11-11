@@ -79,6 +79,7 @@ COMMANDS=(
 # A2: not 'set-url' (needs your terminal for the hidden URL) and not 'rollback'.
     "host/scripts/08-health-heartbeat.sh preflight"
     "host/scripts/08-health-heartbeat.sh install"
+    "host/scripts/08-health-heartbeat.sh update"
     "host/scripts/08-health-heartbeat.sh enable"
     "host/scripts/08-health-heartbeat.sh status"
     "host/scripts/08-health-heartbeat.sh test-fail"

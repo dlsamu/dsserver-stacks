@@ -20,6 +20,9 @@
 #   test             the test flag /run/dsserver-health-test-fail exists (see 08-health-heartbeat.sh)
 # INFORMATION only (in the ping body, never a failure):
 #   docker:<active|inactive|failed|...>  a deliberately stopped Docker is not a host failure
+#   apps:failed                          an application-layer unit (StockPulse, Docker) has failed; the
+#                                        application is down or degraded, the host is fine. Beszel alerts
+#                                        on it (SystemdFailed / ContainerHealth, unit named in the ntfy text)
 #   reboot:required                      from dsserver-reboot-needed
 #
 # Privacy: the ping body contains only the codes above. Unit names, disk models, paths and
@@ -55,6 +58,7 @@ case $MODE in --ping|--report|--dry-run) ;; *) echo "usage: $0 --ping|--report|-
 PROBLEMS=()   # external codes
 INFO=()       # external codes
 DETAILS=()    # local only
+APPS_FAILED=0
 problem() { local c
     for c in "${PROBLEMS[@]}"; do [ "$c" = "$1" ] && { DETAILS+=("$2"); return; }; done
     PROBLEMS+=("$1"); DETAILS+=("$2"); }
@@ -64,6 +68,7 @@ if FAILED=$("$SYSTEMCTL" list-units --state=failed --plain --no-legend --no-page
     while read -r unit _; do
         [ -n "$unit" ] || continue
         if [[ $unit =~ $APP_UNITS_RE ]]; then DETAILS+=("application-layer unit failed (not a host failure): $unit")
+            [ "$unit" = dsserver-health.service ] || APPS_FAILED=1
         else problem failed_units "failed unit: $unit"; fi
     done <<<"$FAILED"
 else
@@ -123,6 +128,7 @@ fi
 DOCKER=$("$SYSTEMCTL" is-active docker.service 2>/dev/null); DOCKER=${DOCKER:-unknown}
 [[ $DOCKER =~ ^[a-z-]+$ ]] || DOCKER=unknown
 INFO+=("docker:$DOCKER")
+[ "$APPS_FAILED" = 0 ] || INFO+=("apps:failed")
 if [ -x "$REBOOT_NEEDED" ]; then
     if ! RB=$("$REBOOT_NEEDED" 2>/dev/null); then INFO+=("reboot:required"); DETAILS+=("$RB"); fi
 fi

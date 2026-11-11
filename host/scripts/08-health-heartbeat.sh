@@ -5,6 +5,8 @@
 # Usage (as root, in Konsole - NOT through the chat's "!" prefix; each step stops on the first failed check):
 #   sudo bash 08-health-heartbeat.sh preflight     read-only checks
 #   sudo bash 08-health-heartbeat.sh install       install script + units (timer NOT enabled), local report
+#   sudo bash 08-health-heartbeat.sh update        replace the installed script/units with the repository copies
+#                                                  (URL, timer state and test flag untouched); local report
 #   sudo bash 08-health-heartbeat.sh set-url       paste the private ping URL (hidden input, never displayed)
 #   sudo bash 08-health-heartbeat.sh enable        send one ping, then enable the 5-minute timer
 #   sudo bash 08-health-heartbeat.sh test-fail     raise the test flag and ping  -> expect a "down" email
@@ -84,6 +86,29 @@ install_all() {
     step "Local report (no network)"
     "$DST_BIN" --dry-run || true
     echo; echo "08 INSTALL PASSED. Next: create the check on healthchecks.io, then 'set-url'."
+}
+
+update_all() {
+    need_installed
+    step "Update script and units from the repository (ping URL, timer state and test flag are kept)"
+    for f in "$SRC_BIN" "$SRC_SVC" "$SRC_TMR"; do [ -f "$f" ] || fail "repository file missing: $f"; done
+    bash -n "$SRC_BIN" || fail "$SRC_BIN has a syntax error"
+    local changed=0 pair src dst mode
+    for pair in "$SRC_BIN:$DST_BIN:0755" "$SRC_SVC:$DST_SVC:0644" "$SRC_TMR:$DST_TMR:0644"; do
+        IFS=: read -r src dst mode <<<"$pair"
+        if cmp -s "$src" "$dst"; then ok "$dst unchanged"
+        else
+            diff -u "$dst" "$src" | sed -n '1,2d; /^[-+]/p' | head -n 40 | sed 's/^/  | /'
+            install -m "$mode" -o root -g root "$src" "$dst.new" && mv -f "$dst.new" "$dst"
+            cmp -s "$src" "$dst" || fail "$dst does not match after install"
+            ok "$dst updated"; changed=1
+        fi
+    done
+    if [ "$changed" = 1 ]; then systemctl daemon-reload; systemd-analyze verify "$DST_SVC" "$DST_TMR" || fail "systemd-analyze verify reported problems"; fi
+    echo "timer: $(systemctl is-enabled dsserver-health.timer 2>/dev/null || true) / $(systemctl is-active dsserver-health.timer 2>/dev/null || true)"
+    step "Local report (no network)"
+    "$DST_BIN" --dry-run || true
+    echo; echo "08 UPDATE DONE. The next timer run (within 5 min) pings with the new script."
 }
 
 set_url() {
@@ -173,6 +198,7 @@ rollback() {
 case $CMD in
     preflight) preflight ;;
     install) install_all ;;
+    update) update_all ;;
     set-url) set_url ;;
     enable) enable_timer ;;
     test-fail) test_fail ;;
@@ -181,5 +207,5 @@ case $CMD in
     test-resume) test_resume ;;
     status) status ;;
     rollback) rollback ;;
-    *) echo "usage: sudo bash $0 preflight|install|set-url|enable|test-fail|test-recover|test-silence|test-resume|status|rollback" >&2; exit 2 ;;
+    *) echo "usage: sudo bash $0 preflight|install|update|set-url|enable|test-fail|test-recover|test-silence|test-resume|status|rollback" >&2; exit 2 ;;
 esac
