@@ -41,6 +41,7 @@ Raspberry Pi 5 (8 GB), Raspberry Pi OS Lite 64-bit (Debian 13 trixie), 128 GB mi
 | Disk health (dsserver) | SMART | stays with smartd and the dsserver heartbeat (A2). Beszel's SMART needs disk-group or root access |
 
 ## Alerts (sent to the ntfy topic in `~/ntfy-beacon.txt`, server ntfy.sh)
+Owned by the automation account and managed with `bz` (see "Automation (API)"): e.g. `bz alerts`, `bz set-alert dsserver Disk 85 10`.
 Notification URL (Dashboard → Settings → Notifications): `ntfy://ntfy.sh/<topic>` with **no** `?title=`, so Beszel's own titles come through, e.g. "dsserver disk usage above threshold" / "… below threshold": machine name plus problem or recovery.
 | Alert | Systems | Fires when |
 |---|---|---|
@@ -96,14 +97,14 @@ Claude (or you) administers Beszel from dsserver with **`bash /srv/stacks/beacon
 **Commands:** `systems`, `alerts`, `monitors`, `set-alert SYSTEM TYPE VALUE MIN`, `del-alert SYSTEM TYPE`, `add-system NAME HOST` (writes `~/.beszel-agent-NAME.env`, 0600, for the agent installer), `remove-system NAME --yes`, `pause NAME`, `resume NAME`, `test-notify`, `api METHOD /api/...` (anything else in the [PocketBase API](https://pocketbase.io/docs/api-records/); body on stdin).
 
 **Limits:**
-- **Alerts belong to the account that created them.** Your 13 alert rules are owned by your dashboard account, so `bz` cannot see or change them (Beszel's rule `user = @request.auth.id`); `bz alerts`/`set-alert` act on the automation account's own rules. Ownership transfer is a separate, not yet approved step.
-  - **Prepared, not run:** `scripts/alert-ownership.sh check|migrate|rollback` (→ `alert_owner.py` on Beacon) changes only the owner of the existing records, in place (same IDs, thresholds, durations, state; history untouched), with a temporary superuser that is always deleted and verified gone, a before/after comparison that fails on any other change, and automatic undo if a step fails. Snapshots: `/root/beszel-automation/alert-ownership/` on Beacon (0600, no secrets). Rehearsed 2026-11-11 on a throwaway copy of the hub (127.0.0.1:18090, notifications disabled): injected failure after 5 alerts → 5/5 undone, superuser gone; migrate → automation edits a transferred alert (single and bulk), can't give it away; rollback → all 13 back, identical.
+- **Alert ownership (since 2026-11-11 10:00):** all 13 alert rules are owned by **`automation@beacon.lan`**, so `bz alerts`, `set-alert` and `del-alert` manage them. They were transferred **in place** with `scripts/alert-ownership.sh migrate`: the same records and IDs, thresholds, durations and state, and alert history untouched. A temporary superuser was used and removed, and its removal verified. The snapshot is in `/root/beszel-automation/alert-ownership/` on Beacon. They notify the ntfy URL in the **automation account's** settings, a copy of yours. If the topic ever changes, change it there too: `bz api PATCH /api/collections/user_settings/records/<id>`. In the dashboard your account no longer shows them in the bell dialogs; history from before the transfer stays with your account.
+- **Rollback** (all 13 back to your account, same IDs; temporary superuser again, removed and verified; refuses while an alert is firing): `bash /srv/stacks/beacon/scripts/alert-ownership.sh rollback` → `ROLLBACK DONE`. Read-only state check: `... alert-ownership.sh check`. **Run the rollback before revoking the automation account**: deleting the account deletes the alerts it owns.
 - Your notification settings and account can't be changed by it (by design); creating or deleting **accounts** needs a superuser (Beszel has no other mechanism).
 - Heartbeat status/test and config export need role `admin` (not granted).
 
 **Rotate the password** (Beacon, root): needs a temporary superuser like the bootstrap: simplest is revoke + bootstrap again (below); alerts owned by the automation account would be lost, so list them first (`bz alerts`).
 
-**Revoke:** 1. Dashboard → `http://beacon.local:8090/_/` (your login) → Collections → *users* → `automation@beacon.lan` → Delete (this ends all its sessions and deletes its own alerts and notification settings). 2. `ssh beacon 'sudo rm -r /root/beszel-automation'`. 3. Optional: remove `SHARE_ALL_SYSTEMS` from `compose/beszel/compose.yaml` and run `scripts/deploy.sh`. To start over afterwards: `bash /srv/stacks/beacon/scripts/setup-automation.sh`.
+**Revoke:** 0. First `alert-ownership.sh rollback` (see above). 1. Dashboard → `http://beacon.local:8090/_/` (your login) → Collections → *users* → `automation@beacon.lan` → Delete (this ends all its sessions and deletes its own alerts and notification settings). 2. `ssh beacon 'sudo rm -r /root/beszel-automation'`. 3. Optional: remove `SHARE_ALL_SYSTEMS` from `compose/beszel/compose.yaml` and run `scripts/deploy.sh`. To start over afterwards: `bash /srv/stacks/beacon/scripts/setup-automation.sh`.
 
 **Bootstrap safety (how the account was made):** a temporary superuser with a random password is created with Beszel's CLI, used for the account and its notification settings only, deleted in a `finally` block and verified gone (superuser list equal to the snapshot; its login refused). A read-only snapshot of alerts, your account, notification settings, systems, network checks, agent tokens and history counts is compared before/after.
 
@@ -136,6 +137,7 @@ Claude (or you) administers Beszel from dsserver with **`bash /srv/stacks/beacon
 - 2026-11-11 08:27: dsserver agent 0.21.1 + socket proxy installed (`13-beszel-agent.sh install`), system resumed in Beszel. Admin password moved to Bitwarden; plaintext files deleted.
 - 2026-11-11 09:21: ntfy titles fixed; Beacon outage detection and dsserver alert/recovery tested.
 - 2026-11-11 09:37–09:48: `SHARE_ALL_SYSTEMS=true` (hub recreated); automation account bootstrapped by you (`BOOTSTRAP DONE`) and tested through the API.
+- 2026-11-11 10:00: 13 alerts transferred to the automation account (`alert-ownership.sh migrate`, approved by you).
 
 ## Verification
 **Tested 2026-11-10 (Beacon):**
@@ -165,6 +167,14 @@ Claude (or you) administers Beszel from dsserver with **`bash /srv/stacks/beacon
 - the 13 existing alerts: all still owned by your account, none firing, content digest identical before and after (`fa8d7ea715cc`); alert history unchanged (4)
 - `bz test-notify` → Beszel "Test Alert" reached ntfy.sh 09:46:34
 - afterwards: both systems up; `13-beszel-agent.sh verify` passed; no failed units on either host; hub healthy, 0 error lines; heartbeat still every 60 s (09:46:39, 09:47:44)
+
+**Tested 2026-11-11 10:00–10:04, alert ownership transfer (production):**
+- rehearsed first on a throwaway copy of the hub (127.0.0.1:18090, notifications disabled): an injected failure after 5 alerts was undone 5/5 with the superuser removed; migrate; the automation account edited a transferred alert (single and bulk) but couldn't give one away; rollback restored all 13 unchanged
+- preflight `check` passed: 13 alerts owned by you, none firing; notification URL digests identical; no quiet hours; SMTP off; `SHARE_ALL_SYSTEMS=true`
+- `migrate`: 13 owners changed in place; temporary superuser deleted (exit 0), superusers back to 1, its login refused; same alert IDs and every field except the owner unchanged; history, accounts, notification settings, systems, network checks and agent tokens unchanged; metrics kept (338 → 338); the automation account sees all 13 → `MIGRATE DONE`
+- afterwards: `bz alerts` lists all 13 with their values; both systems up; dsserver `verify` passed; no failed units on either host; hub healthy, 0 error lines
+- **alert test through the API** on the original record `v193rsr5mek62lk`: `bz set-alert dsserver Disk 1 1` at 10:01:04 → ntfy 10:01:47 *"dsserver disk usage above threshold"*; `bz set-alert dsserver Disk 85 10` → 10:02:47 *"dsserver disk usage below threshold"*
+- final: all 13 alerts identical to the pre-migration snapshot except the owner; your account (role, password hash, token key, last change) unchanged; 1 superuser; heartbeat still every 60 s (10:03:04, 10:03:44)
 
 **Start at boot (dsserver), checked but not rebooted:** `beszel-agent.service` enabled (multi-user.target, `Restart=always`), `docker.service` enabled, proxy `restart: unless-stopped`, tmpfiles entry recreates `/run/beszel-docker` before Docker starts. The same set-up survived a real reboot on Beacon.
 
