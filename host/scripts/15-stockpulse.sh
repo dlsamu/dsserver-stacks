@@ -24,6 +24,13 @@
 #   backup-enable    enable the daily backup timer
 #   timers-enable | timers-disable   the three weekday screener timers (production schedule)
 #   down             stop and remove the web container (data untouched)
+# Isolated testing of UNRELEASED code (branch `stockpulse-test` in ~/dev/stock-tracker; no 09 install needed):
+#   test-build       image stockpulse-test:<commit> (+ :current) from that branch, same Dockerfile; never
+#                    tagged stockpulse:*, so production (compose, timers, web) can never use it
+#   test-run us|intl|ath   run it against the TEST copy only: plain `docker run` on network stockpulse_test,
+#                    mounts ONLY /srv/appdata/stockpulse-test/{data,reports}; no secrets mount, no Firebase key,
+#                    test topic; read-only root, no capabilities, no-new-privileges, uid 10010, memory/pid limits
+#   test-clean       remove stockpulse-test images and the stockpulse_test network
 set -euo pipefail
 HERE=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
 ROOT=$(readlink -f -- "$HERE/../..")
@@ -40,6 +47,8 @@ UNITS="stockpulse-job@.service stockpulse-us.timer stockpulse-intl.timer stockpu
 STATE=/var/lib/stockpulse
 ARCHIVE_RE='report(_ath|_intl_(pacific|european|nordic))?_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}(_TEST)?\.html'
 UID_=10010
+TESTREF=refs/heads/stockpulse-test
+TESTIMG=stockpulse-test
 ok()   { echo "ok    $*"; }
 bad()  { echo "FAIL  $*"; FAILS=$((FAILS+1)); }
 fail() { echo; echo "FAILED: $*"; echo "Stopped."; exit 1; }
@@ -278,6 +287,38 @@ print("backup", os.path.basename(dst), "integrity ok,", n, "runs;", len(old), "o
   timers-disable:1)
     for t in us intl ath; do systemctl disable --now "stockpulse-$t.timer" >/dev/null 2>&1 || true; done
     rm -f "$STATE/timers-enabled-at"; ok "screener timers disabled (freshness no longer checked)" ;;
+  test-build:1)
+    c=$(runuser -u daniel -- git -C "$REPO" rev-parse --verify --quiet "$TESTREF^{commit}") || fail "branch stockpulse-test not found in $REPO"
+    [[ $c =~ ^[0-9a-f]{40}$ ]] || fail "unexpected commit id"
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    mkdir "$tmp/src"
+    runuser -u daniel -- git -C "$REPO" archive --format=tar "$c" | tar -x -C "$tmp/src"
+    cp "$STACK/Dockerfile" "$tmp/Dockerfile"
+    docker build -q -t "$TESTIMG:${c:0:12}" -t "$TESTIMG:current" --label "org.opencontainers.image.revision=$c" \
+        --label stockpulse.test=1 "$tmp" >/dev/null
+    ok "built $TESTIMG:${c:0:12} (= $TESTIMG:current) from branch stockpulse-test, commit $c"
+    echo "production image stays $STOCKPULSE_IMAGE (SOURCE)" ;;
+  test-run:2)
+    s=$(script_for "$2")
+    docker image inspect "$TESTIMG:current" >/dev/null 2>&1 || fail "no test image: run test-build"
+    [ "$(docker image inspect -f '{{index .Config.Labels "stockpulse.test"}}' "$TESTIMG:current")" = 1 ] || fail "image is not a test build"
+    [ -s "$TEST/data/history.db" ] || fail "run test-reset first"
+    [ "$(readlink -f "$TEST")" = /srv/appdata/stockpulse-test ] || fail "unexpected test path"
+    docker network inspect stockpulse_test >/dev/null 2>&1 || docker network create --label stockpulse.test=1 stockpulse_test >/dev/null
+    rev=$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$TESTIMG:current")
+    echo "--- ISOLATED TEST run $2 ($s), test build ${rev:0:12}, against $TEST; no secrets, pushes impossible; started $(date +%T)"
+    locked docker run --rm --name "stockpulse-testrun-$2" --network stockpulse_test \
+        --user 10010:10010 --read-only --tmpfs /tmp:size=256m,uid=10010,gid=10010,mode=0700 \
+        --cap-drop ALL --security-opt no-new-privileges:true --memory 1536m --pids-limit 256 \
+        --log-driver local --log-opt max-size=10m \
+        --mount "type=bind,source=$TEST/data,target=/data" --mount "type=bind,source=$TEST/reports,target=/reports" \
+        -e STOCKPULSE_FCM_KEY=/nonexistent/key -e STOCKPULSE_FCM_TOPIC=stockpulse-test \
+        "$TESTIMG:current" python "$s"
+    echo "--- finished $(date +%T)" ;;
+  test-clean:1)
+    docker image ls --format '{{.Repository}}:{{.Tag}}' "$TESTIMG" | xargs -r docker image rm >/dev/null
+    docker network rm stockpulse_test >/dev/null 2>&1 || true
+    ok "test images and network removed" ;;
   down:1) dc down 2>&1 | tail -n 2 ;;
-  *) echo "usage: sudo $0 preflight|build|import|up|verify|status|test-reset|run-test us|intl|ath|push-test|job us|intl|ath|backup|test-recovery|check|check-now|check-test-fail|check-test-clear|check-enable|units-install|backup-enable|timers-enable|timers-disable|down" >&2; exit 2 ;;
+  *) echo "usage: sudo $0 preflight|build|import|up|verify|status|test-reset|run-test us|intl|ath|push-test|job us|intl|ath|backup|test-recovery|check|check-now|check-test-fail|check-test-clear|check-enable|units-install|backup-enable|timers-enable|timers-disable|down|test-build|test-run us|intl|ath|test-clean" >&2; exit 2 ;;
 esac

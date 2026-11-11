@@ -47,6 +47,14 @@ Alert test (≈ 10–15 min): `15 check-test-fail` → `15 check-now` → ntfy a
 `units-install` · `backup-enable` · `timers-enable|timers-disable` · `down`.
 After changing anything under `stockpulse/` or the Caddyfile: commit, `sudo bash host/scripts/09-delegated-sudo.sh install <commit>`.
 
+## Testing unreleased code (no 09 install per change)
+Point branch `stockpulse-test` in `~/dev/stock-tracker` at the commit to test (`git branch -f stockpulse-test <commit>`),
+then `15 test-reset` → `15 test-build` → `15 test-run us|intl|ath` → compare → `15 test-clean`.
+The test image is tagged `stockpulse-test:*` (production only ever runs `stockpulse:<SOURCE>`); the run mounts only
+`/srv/appdata/stockpulse-test/{data,reports}`, has no secrets mount and no Firebase key (pushes impossible), and uses its
+own network `stockpulse_test`. Like production jobs it has internet (and LAN) egress, and the build installs the
+commit's own `requirements.lock`, so only test commits you wrote yourself.
+
 ## Deploy from scratch / recovery
 1. `~/dev/stock-tracker` contains the `SOURCE` commit (push branch `dsserver` to GitHub so it survives a disk loss).
 2. `09 install <commit>` → `15 build` → `15 import` (or restore `data/` and `reports/` from backup instead) → `15 up`
