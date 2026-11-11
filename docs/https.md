@@ -92,15 +92,20 @@ Revoke: Cloudflare → My Profile → API Tokens → **⋯ → Delete**. Then cr
 No record for the zone apex, no wildcard and no MX. Caddy adds and removes its own temporary
 `_acme-challenge` TXT records.
 
-## Status
+## Status (2026-11-11)
 | Item | State |
 |---|---|
-| Beacon: Caddy image built (2.11.9 + cloudflare v0.2.4) | **done** 2026-11-11 |
-| Beacon: proxy tested on loopback with an internal test CA (dashboard, /api/health, live updates (SSE), agent WebSocket endpoint, login + authenticated read) | **tested** 2026-11-11 |
-| Beacon: firewall 443/tcp from the LAN | prepared (`beacon/firewall/beacon-firewall.nft`), **not loaded** |
-| Beacon: real certificate, DNS name, verify from dsserver, real agent over WebSocket | waiting for the token + DNS records |
-| dsserver: `proxy/` + `host/scripts/14-https-proxy.sh` (delegated) | prepared and validated (`caddy validate`). Needs `09 install`, the token, firewall approval for 443 and a DHCP reservation |
-| Retire LAN plain HTTP (Beacon :8090) | **not started; needs your approval** (see "Cutover") |
+| DNS: `beacon` → .121 and `dsserver` → .115, both DNS only (dsserver's Deco reservation confirmed by you) | **live**. Resolves through Cloudflare's authoritative servers, ISP resolvers 2.248.248.2/.248, the Deco gateway 192.168.68.1, 1.1.1.1, 8.8.8.8 and the system resolver on both hosts. No leftover `_acme-challenge` records |
+| Tokens `caddy-beacon` / `caddy-dsserver` | **installed**: `/etc/beacon-secrets/cloudflare.env` and `/etc/dsserver-secrets/cloudflare.env` (root 0600). Status active; each sees only rubusdua.net. Staged copies shredded. Nothing in Caddy's logs |
+| https://beacon.rubusdua.net | **live, tested**: Let's Encrypt (YE1), TLS 1.3, expires 2027-02-09. From dsserver by name: dashboard, /api/health, live updates (SSE), agent WebSocket endpoint. On Beacon: automation login + authenticated read |
+| Beszel agent over WebSocket through HTTPS | **tested**: a temporary agent on dsserver connected to `https://beacon.rubusdua.net` ("WebSocket connected") and delivered live metrics. The test system, token file and data were removed afterwards. Real agents still use :8090 (see Cutover) |
+| Beacon firewall 443/tcp from the LAN | **live**: try → test → confirm. 80 and 2019 closed |
+| https://dsserver.rubusdua.net | **live, tested**: Let's Encrypt (YE1), TLS 1.3, expires 2027-02-09. Answers with the placeholder 404 as designed. Checked from Beacon (a LAN client) by name with certificate verification |
+| dsserver firewall 443/tcp in `lan_tcp` | **live**: blocked from the LAN before, open after `10 try`. 22 still reachable; unlisted 9999 and port 80 closed. Then `confirm`; `10 VERIFY PASSED` |
+| Restart recovery | **tested**: Beacon: SIGKILL of Caddy → Docker restarted it within 1 s and kept the stored certificate (no new request). dsserver: container recreated by `14 up` → certificate reused. Both `restart: unless-stopped`; docker, firewall and agent units enabled at boot. **Not tested:** an actual reboot (not allowed), and a SIGKILL on dsserver (14 has no such mode; same image and policy as Beacon) |
+| Renewal | **path tested**: a throw-away Caddy on Beacon obtained a fresh certificate from Let's Encrypt **staging** with the same token and plugin, then was removed. Real renewal is automatic, about 30 days before expiry (first around 2027-01-10). **Not observed yet** |
+| Monitoring after the change | **checked**: both systems up, 13 alerts / 0 firing, `13 VERIFY PASSED`, dsserver heartbeat ran successfully at 16:02, Beacon hub sends its Healthchecks ping (HTTPS connection 16:05:30), `bz test-notify` sent, 0 failed units on both hosts, http://192.168.68.121:8090 still answers |
+| Retire LAN plain HTTP (Beacon :8090), set `APP_URL` | **not started; needs your approval** |
 
 ## Cutover (later, with approval)
 - **Browsers** move to https://beacon.rubusdua.net. Set the hub's `APP_URL` to that address so links in
