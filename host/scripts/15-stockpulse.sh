@@ -79,7 +79,7 @@ case "${1:-}:$#" in
     [ -s "$APP/data/history.db" ] && echo "data: history.db present" || echo "data: not imported yet"
     [ -s "$SECRETS/firebase-service-account.json" ] && echo "firebase key: present" || echo "firebase key: absent (pushes are skipped)"
     echo "web: $(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' stockpulse-web 2>/dev/null || echo absent)"
-    for t in us intl ath backup; do echo "timer $t: $(systemctl is-enabled stockpulse-$t.timer 2>/dev/null || echo not-installed)"; done
+    for t in us intl ath backup check; do e=$(systemctl is-enabled stockpulse-$t.timer 2>/dev/null || true); echo "timer $t: ${e:-not-installed}"; done
     [ "$FAILS" = 0 ] && echo "15 PREFLIGHT PASSED" || fail "$FAILS check(s) failed" ;;
 
   build:1)
