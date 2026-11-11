@@ -128,6 +128,7 @@ COMMANDS=(
     "host/scripts/15-stockpulse.sh job ath"
     "host/scripts/15-stockpulse.sh backup"
     "host/scripts/15-stockpulse.sh check"
+    "host/scripts/15-stockpulse.sh test-recovery"
     "host/scripts/15-stockpulse.sh check-test-fail"
     "host/scripts/15-stockpulse.sh check-test-clear"
     "host/scripts/15-stockpulse.sh check-enable"

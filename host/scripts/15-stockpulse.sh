@@ -18,6 +18,7 @@
 #                    Beszel's SystemdFailed alert (dsserver) sends to ntfy; the next passing run clears it.
 #   check-test-fail | check-test-clear   inject / remove a deliberate check failure (alert pipeline test)
 #   check-enable     install + enable stockpulse-check.timer
+#   test-recovery    SIGKILL the web process; Docker must restart it and serve the same report
 #   units-install    install the systemd units (nothing enabled)
 #   backup-enable    enable the daily backup timer
 #   timers-enable | timers-disable   the three weekday screener timers (production schedule)
@@ -244,6 +245,15 @@ print("backup", os.path.basename(dst), "integrity ok,", n, "runs;", len(old), "o
     h=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' stockpulse-web 2>/dev/null || echo absent)
     if [ "$h" = "running healthy" ]; then ok "web container running, healthy"; else echo "FAIL  web container: $h"; rc=1; fi
     exit $rc ;;
+  test-recovery:1)
+    w=stockpulse-web; get() { curl -s --resolve "$NAME:443:127.0.0.1" "https://$NAME$1" | sha256sum | cut -c1-16; }
+    h0=$(get /latest/us); c0=$(docker inspect -f '{{.RestartCount}}' $w); pid=$(docker inspect -f '{{.State.Pid}}' $w)
+    echo "--- SIGKILL web pid $pid at $(date +%T) (a crash; 'docker stop' would count as a manual stop)"
+    kill -KILL "$pid"
+    for _ in $(seq 60); do [ "$(docker inspect -f '{{.RestartCount}} {{.State.Health.Status}}' $w)" = "$((c0+1)) healthy" ] && break; sleep 1; done
+    [ "$(docker inspect -f '{{.RestartCount}} {{.State.Health.Status}}' $w)" = "$((c0+1)) healthy" ] && ok "web restarted by Docker and healthy at $(date +%T)" || bad "web not back"
+    [ "$(get /latest/us)" = "$h0" ] && ok "same report served after the crash (sha256 $h0)" || bad "report differs after restart"
+    [ "$FAILS" = 0 ] && echo "15 TEST-RECOVERY PASSED" || fail "$FAILS check(s) failed" ;;
   check-test-fail:1)  install -d -m 0755 "$STATE"; touch "$STATE/fail-test"; ok "deliberate check failure ON (next check run fails)" ;;
   check-test-clear:1) rm -f "$STATE/fail-test"; ok "deliberate check failure OFF" ;;
   check-enable:1)
@@ -265,5 +275,5 @@ print("backup", os.path.basename(dst), "integrity ok,", n, "runs;", len(old), "o
     for t in us intl ath; do systemctl disable --now "stockpulse-$t.timer" >/dev/null 2>&1 || true; done
     rm -f "$STATE/timers-enabled-at"; ok "screener timers disabled (freshness no longer checked)" ;;
   down:1) dc down 2>&1 | tail -n 2 ;;
-  *) echo "usage: sudo $0 preflight|build|import|up|verify|status|test-reset|run-test us|intl|ath|push-test|job us|intl|ath|backup|check|check-test-fail|check-test-clear|check-enable|units-install|backup-enable|timers-enable|timers-disable|down" >&2; exit 2 ;;
+  *) echo "usage: sudo $0 preflight|build|import|up|verify|status|test-reset|run-test us|intl|ath|push-test|job us|intl|ath|backup|test-recovery|check|check-test-fail|check-test-clear|check-enable|units-install|backup-enable|timers-enable|timers-disable|down" >&2; exit 2 ;;
 esac
