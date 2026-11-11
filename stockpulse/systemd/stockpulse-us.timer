@@ -1,0 +1,12 @@
+[Unit]
+Description=StockPulse us screener, weekdays 08:00 (Europe/Stockholm)
+
+[Timer]
+OnCalendar=Mon..Fri 08:00 Europe/Stockholm
+Unit=stockpulse-job@us.service
+AccuracySec=1min
+# No catch-up after downtime (same as the Pi's cron): a missed run is skipped, not run late.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

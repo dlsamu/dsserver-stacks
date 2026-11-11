@@ -50,8 +50,18 @@ FILES=(
     proxy/compose.yaml
     proxy/Caddyfile
     beacon/compose/caddy/Dockerfile
+    host/scripts/15-stockpulse.sh
+    stockpulse/SOURCE
+    stockpulse/Dockerfile
+    stockpulse/compose.yaml
+    stockpulse/systemd/stockpulse-job@.service
+    stockpulse/systemd/stockpulse-us.timer
+    stockpulse/systemd/stockpulse-intl.timer
+    stockpulse/systemd/stockpulse-ath.timer
+    stockpulse/systemd/stockpulse-backup.service
+    stockpulse/systemd/stockpulse-backup.timer
 )
-EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh host/scripts/14-https-proxy.sh "
+EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh host/scripts/14-https-proxy.sh host/scripts/15-stockpulse.sh "
 
 # Exact command lines daniel may run as root without a password.
 # A1: everything except 'rollback' (rollback stays a manual, deliberate step).
@@ -92,11 +102,33 @@ COMMANDS=(
     "host/scripts/14-https-proxy.sh preflight"
     "host/scripts/14-https-proxy.sh token-install"
     "host/scripts/14-https-proxy.sh token-check"
+    "host/scripts/14-https-proxy.sh dns-ensure"
     "host/scripts/14-https-proxy.sh build"
     "host/scripts/14-https-proxy.sh up"
     "host/scripts/14-https-proxy.sh verify"
     "host/scripts/14-https-proxy.sh status"
     "host/scripts/14-https-proxy.sh down"
+    # StockPulse (stockpulse/): 'job' and 'timers-enable' are production actions, used only after approval.
+    "host/scripts/15-stockpulse.sh preflight"
+    "host/scripts/15-stockpulse.sh build"
+    "host/scripts/15-stockpulse.sh import"
+    "host/scripts/15-stockpulse.sh up"
+    "host/scripts/15-stockpulse.sh verify"
+    "host/scripts/15-stockpulse.sh status"
+    "host/scripts/15-stockpulse.sh test-reset"
+    "host/scripts/15-stockpulse.sh run-test us"
+    "host/scripts/15-stockpulse.sh run-test intl"
+    "host/scripts/15-stockpulse.sh run-test ath"
+    "host/scripts/15-stockpulse.sh push-test"
+    "host/scripts/15-stockpulse.sh job us"
+    "host/scripts/15-stockpulse.sh job intl"
+    "host/scripts/15-stockpulse.sh job ath"
+    "host/scripts/15-stockpulse.sh backup"
+    "host/scripts/15-stockpulse.sh units-install"
+    "host/scripts/15-stockpulse.sh backup-enable"
+    "host/scripts/15-stockpulse.sh timers-enable"
+    "host/scripts/15-stockpulse.sh timers-disable"
+    "host/scripts/15-stockpulse.sh down"
 )
 
 fail() { echo; echo "FAILED: $*"; echo "Stopped."; exit 1; }

@@ -6,6 +6,8 @@
 #   token-install  /home/daniel/.cloudflare-token-dsserver (daniel 0600, one line) ->
 #                  /etc/dsserver-secrets/cloudflare.env (root 0600); checked at Cloudflare; local file shredded
 #   token-check    re-check the installed token at Cloudflare (status, zone visibility); never prints it
+#   dns-ensure     for every *.rubusdua.net site in the snapshot's Caddyfile: create a missing A record
+#                  -> 192.168.68.115, DNS only (grey cloud). Never changes or deletes existing records.
 #   build          build the image (same Dockerfile as Beacon)
 #   up             create/recreate the container from the snapshot's compose file and Caddyfile, wait
 #                  for the certificate. Recreating takes a few seconds (that is how Caddyfile changes apply).
@@ -68,6 +70,22 @@ case "${1:-}:$#" in
     token_check || fail "token check failed: staged file kept; fix the token and run token-install again"
     shred -u "$STAGED" && ok "staged file shredded" ;;
   token-check:1) token_check ;;
+  dns-ensure:1)
+    # Names come only from the reviewed Caddyfile; the token reaches curl through builtins (never argv/logs).
+    mapfile -t names < <(grep -oE '^[a-z0-9-]+\.rubusdua\.net' "$ROOT/proxy/Caddyfile" | sort -u)
+    ( . "$SECRET"; cf() { printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n%s' "$CF_API_TOKEN" "$1" | curl -s -m 20 -K -; }
+      zone=$(cf 'url = "https://api.cloudflare.com/client/v4/zones?name=rubusdua.net"' | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["result"][0]["id"])')
+      for n in "${names[@]}"; do
+        cur=$(cf "url = \"https://api.cloudflare.com/client/v4/zones/$zone/dns_records?name=$n\"" | python3 -I -c 'import json,sys; print(" ".join("%s:%s:%s" % (r["type"], r["content"], "proxied" if r["proxied"] else "dns-only") for r in json.load(sys.stdin)["result"]))')
+        if [ -z "$cur" ]; then
+          r=$(cf "request = \"POST\"
+url = \"https://api.cloudflare.com/client/v4/zones/$zone/dns_records\"
+data = \"{\\\"type\\\":\\\"A\\\",\\\"name\\\":\\\"$n\\\",\\\"content\\\":\\\"192.168.68.115\\\",\\\"ttl\\\":1,\\\"proxied\\\":false,\\\"comment\\\":\\\"dsserver LAN HTTPS (proxy/Caddyfile); DNS only\\\"}\"
+" | python3 -I -c 'import json,sys; d=json.load(sys.stdin); print("created" if d["success"] else "error %s" % d["errors"])')
+          echo "$n: $r A 192.168.68.115 dns-only"
+        elif [ "$cur" = "A:192.168.68.115:dns-only" ]; then echo "$n: ok (A 192.168.68.115, dns-only)"
+        else echo "$n: EXISTS WITH DIFFERENT VALUE ($cur) - left unchanged"; fi
+      done ) ;;
   build:1)
     "${COMPOSE[@]}" build --pull=false 2>&1 | tail -n 3
     docker image ls dsserver-caddy --format '{{.Repository}}:{{.Tag}} {{.ID}} {{.Size}}' ;;
@@ -102,5 +120,5 @@ EOF
     f=$(cert_file); [ -n "$f" ] && openssl x509 -in "$f" -noout -issuer -enddate || echo "no certificate yet"
     docker logs --since 24h $CT 2>&1 | tail -n 5 | cut -c1-250 || true ;;
   down:1) "${COMPOSE[@]}" down 2>&1 | tail -n 2 ;;
-  *) echo "usage: sudo $0 preflight|token-install|token-check|build|up|verify|status|down" >&2; exit 2 ;;
+  *) echo "usage: sudo $0 preflight|token-install|token-check|dns-ensure|build|up|verify|status|down" >&2; exit 2 ;;
 esac

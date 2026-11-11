@@ -1,0 +1,10 @@
+[Unit]
+Description=StockPulse history.db backup, daily 03:15
+
+[Timer]
+OnCalendar=*-*-* 03:15 Europe/Stockholm
+Persistent=true
+Unit=stockpulse-backup.service
+
+[Install]
+WantedBy=timers.target

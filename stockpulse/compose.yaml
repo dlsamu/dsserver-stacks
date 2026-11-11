@@ -1,0 +1,55 @@
+# StockPulse on dsserver. Managed ONLY through host/scripts/15-stockpulse.sh (delegated), which sets
+# STOCKPULSE_IMAGE (stockpulse:<commit>) and, for test runs, the data paths. README.md in this directory.
+#   web  report server (serve.py), always on, reached only by Caddy on the "proxy" network; no ports.
+#   job  screener runs (systemd timers / manual), started with `run --rm`; needs internet; no ports.
+name: stockpulse
+
+x-base: &base
+  image: ${STOCKPULSE_IMAGE:?run through 15-stockpulse.sh}
+  user: "10010:10010"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs:
+    - /tmp:size=256m,uid=10010,gid=10010,mode=0700
+  logging:
+    driver: local
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  web:
+    <<: *base
+    container_name: stockpulse-web
+    restart: unless-stopped
+    command: ["python", "serve.py"]
+    networks: [proxy]
+    volumes:
+      - {type: bind, source: /srv/appdata/stockpulse/reports, target: /reports, read_only: true,
+         bind: {create_host_path: false}}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    mem_limit: 128m
+    pids_limit: 64
+
+  job:
+    <<: *base
+    profiles: [job]
+    networks: [jobs]
+    environment:
+      STOCKPULSE_FCM_KEY: ${STOCKPULSE_FCM_KEY:-/run/secrets/stockpulse/firebase-service-account.json}
+      STOCKPULSE_FCM_TOPIC: ${STOCKPULSE_FCM_TOPIC:-stockpulse-reports}
+    volumes:
+      - {type: bind, source: "${STOCKPULSE_DATA:-/srv/appdata/stockpulse/data}", target: /data, bind: {create_host_path: false}}
+      - {type: bind, source: "${STOCKPULSE_REPORTS:-/srv/appdata/stockpulse/reports}", target: /reports, bind: {create_host_path: false}}
+      - {type: bind, source: /etc/stockpulse-secrets, target: /run/secrets/stockpulse, read_only: true, bind: {create_host_path: false}}
+    mem_limit: 1536m
+    pids_limit: 256
+
+networks:
+  proxy:
+    external: true
+  jobs: {}
