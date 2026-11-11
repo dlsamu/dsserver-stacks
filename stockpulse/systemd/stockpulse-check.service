@@ -4,5 +4,8 @@ Documentation=file:///srv/stacks/stockpulse/README.md
 After=docker.service
 
 [Service]
-Type=oneshot
+# exec, not oneshot: a failed oneshot never has an ActiveEnterTimestamp, and the Beszel agent skips such
+# units, so a failure would not reach the SystemdFailed alert (ntfy).
+Type=exec
+RuntimeMaxSec=10min
 ExecStart=/usr/local/lib/dsserver-admin/host/scripts/15-stockpulse.sh check
