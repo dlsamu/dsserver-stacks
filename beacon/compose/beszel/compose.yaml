@@ -18,6 +18,10 @@ services:
     security_opt: [no-new-privileges:true]
     environment:
       APP_URL: http://beacon.local:8090
+      # Every signed-in account can see and manage every system (still no access for "readonly" users
+      # to change anything). Lets the API automation account (role "user", README "Automation") manage
+      # all systems without being added to each one. Accounts: yours + automation@beacon.lan only.
+      SHARE_ALL_SYSTEMS: "true"
     env_file:
       - path: hub.env
         required: false

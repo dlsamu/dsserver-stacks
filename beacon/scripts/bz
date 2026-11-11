@@ -1,0 +1,89 @@
+#!/bin/bash
+# bz — administer Beszel on Beacon from dsserver, through its REST API, as the dedicated automation
+# account (role "user"). Each call runs scripts/beszel_api.py on Beacon via `ssh beacon sudo`: the
+# account's password stays in /root/beszel-automation/credentials on Beacon, a fresh session token
+# is used once and dropped, and secrets are redacted from every response. Needs: ssh beacon, jq.
+#
+#   bz systems                         list systems (status, host, agent version, cpu/mem/disk)
+#   bz alerts                          list this account's alert rules (the ones that notify ntfy)
+#   bz monitors                        list network checks
+#   bz set-alert SYSTEM TYPE VALUE MIN create or change one alert rule (TYPE e.g. Disk, Memory, Status)
+#   bz del-alert SYSTEM TYPE           delete one alert rule
+#   bz add-system NAME HOST            create a system + agent token; writes ~/.beszel-agent-NAME.env (0600)
+#   bz remove-system NAME --yes        delete a system (and its history, alerts and monitors)
+#   bz pause NAME | bz resume NAME     pause/resume a system
+#   bz test-notify                     send Beszel's test notification to this account's ntfy URL(s)
+#   bz api METHOD /api/...             raw call; JSON body on stdin (redacted output)
+# Reference: /srv/stacks/beacon/README.md "Automation (API)".
+set -euo pipefail
+HUB_URL=http://192.168.68.121:8090
+
+api() {   # api METHOD PATH  (body on stdin for POST/PATCH)
+    local m=$1 p=$2
+    if [ "$m" = POST ] || [ "$m" = PATCH ]; then
+        ssh -o BatchMode=yes beacon "sudo python3 -I /srv/beacon/scripts/beszel_api.py $m '$p'"
+    else
+        ssh -o BatchMode=yes beacon "sudo python3 -I /srv/beacon/scripts/beszel_api.py $m '$p'" </dev/null
+    fi
+}
+enc() { jq -rn --arg s "$1" '$s|@uri'; }
+sys_id() {
+    local id; id=$(api GET "/api/collections/systems/records?perPage=500&filter=$(enc "name='$1'")" | jq -r '.items[0].id // empty')
+    [ -n "$id" ] || { echo "no system named '$1'" >&2; exit 1; }
+    echo "$id"
+}
+self_id() { api GET /api/collections/users/records | jq -r '.items[0].id'; }
+alert_id() { api GET "/api/collections/alerts/records?perPage=500&filter=$(enc "system='$1' && name='$2'")" | jq -r '.items[0].id // empty'; }
+
+cmd=${1:-help}; shift || true
+case $cmd in
+  systems)
+    api GET '/api/collections/systems/records?perPage=500&sort=name' |
+      jq -r '["NAME","ID","STATUS","HOST","AGENT","CPU%","MEM%","DISK%"], (.items[] | [.name,.id,.status,.host,(.info.v//"-"),(.info.cpu//"-"),(.info.mp//"-"),(.info.dp//"-")]) | @tsv' | column -t ;;
+  alerts)
+    names=$(api GET '/api/collections/systems/records?perPage=500&fields=id,name' | jq -c '[.items[]|{(.id):.name}]|add // {}')
+    api GET '/api/collections/alerts/records?perPage=500' |
+      jq -r --argjson n "$names" '["SYSTEM","ALERT","VALUE","MIN","FIRING"], (.items | sort_by($n[.system], .name)[] | [$n[.system], .name, .value, .min, .triggered]) | @tsv' | column -t ;;
+  monitors)
+    names=$(api GET '/api/collections/systems/records?perPage=500&fields=id,name' | jq -c '[.items[]|{(.id):.name}]|add // {}')
+    api GET '/api/collections/network_monitors/records?perPage=500' |
+      jq -r --argjson n "$names" '["SYSTEM","ID","PROTO","TARGET","PORT","EVERY_S","ENABLED","LOSS1H"], (.items[] | [$n[.system], .id, .protocol, .target, (.port//"-"), .interval, .enabled, (.loss1h//"-")]) | @tsv' | column -t ;;
+  set-alert)
+    [ $# = 4 ] || { echo "usage: bz set-alert SYSTEM TYPE VALUE MIN" >&2; exit 2; }
+    sid=$(sys_id "$1"); aid=$(alert_id "$sid" "$2")
+    if [ -n "$aid" ]; then
+      jq -n --argjson v "$3" --argjson m "$4" '{value:$v,min:$m}' | api PATCH "/api/collections/alerts/records/$aid" | jq -c '{id,name,value,min,triggered}'
+    else
+      jq -n --arg u "$(self_id)" --arg s "$sid" --arg t "$2" --argjson v "$3" --argjson m "$4" '{user:$u,system:$s,name:$t,value:$v,min:$m}' |
+        api POST /api/collections/alerts/records | jq -c '{id,name,value,min,triggered}'
+    fi ;;
+  del-alert)
+    [ $# = 2 ] || { echo "usage: bz del-alert SYSTEM TYPE" >&2; exit 2; }
+    aid=$(alert_id "$(sys_id "$1")" "$2"); [ -n "$aid" ] || { echo "no such alert" >&2; exit 1; }
+    api DELETE "/api/collections/alerts/records/$aid" >/dev/null && echo "deleted $1 $2" ;;
+  add-system)
+    [ $# = 2 ] || { echo "usage: bz add-system NAME HOST" >&2; exit 2; }
+    out=~/.beszel-agent-$1.env; [ ! -e "$out" ] || { echo "$out exists" >&2; exit 1; }
+    key=$(api GET /api/beszel/info | jq -r .key); [[ $key == ssh-ed25519* ]] || { echo "no hub key" >&2; exit 1; }
+    sid=$(jq -n --arg n "$1" --arg h "$2" --arg u "$(self_id)" '{name:$n,host:$h,port:"45876",users:[$u]}' |
+          api POST /api/collections/systems/records | jq -r .id)
+    tok=$(python3 -c 'import uuid; print(uuid.uuid4())')
+    jq -n --arg s "$sid" --arg t "$tok" '{system:$s,token:$t}' | api POST /api/collections/fingerprints/records >/dev/null
+    (umask 077; printf 'HUB_URL=%s\nTOKEN=%s\nKEY="%s"\nSYSTEM_NAME=%s\nDOCKER_HOST=\n' "$HUB_URL" "$tok" "$key" "$1" > "$out")
+    echo "system $1 created (id $sid). Agent env file: $out (0600; contains the token)."
+    echo "Set DOCKER_HOST=unix:///run/beszel-docker/docker.sock in it for Docker hosts, install the agent, then delete the file." ;;
+  remove-system)
+    [ $# = 2 ] && [ "$2" = --yes ] || { echo "usage: bz remove-system NAME --yes" >&2; exit 2; }
+    api DELETE "/api/collections/systems/records/$(sys_id "$1")" >/dev/null && echo "removed $1" ;;
+  pause|resume)
+    [ $# = 1 ] || { echo "usage: bz $cmd NAME" >&2; exit 2; }
+    st=paused; [ "$cmd" = resume ] && st=pending
+    jq -n --arg s "$st" '{status:$s}' | api PATCH "/api/collections/systems/records/$(sys_id "$1")" | jq -c '{name,status}' ;;
+  test-notify)
+    # the URL is read and used on Beacon only (never shown); one Beszel test message per URL
+    ssh -o BatchMode=yes beacon 'sudo python3 -I /srv/beacon/scripts/beszel_api.py test-notify' </dev/null ;;
+  api)
+    [ $# = 2 ] || { echo "usage: bz api METHOD /api/... (body on stdin)" >&2; exit 2; }
+    api "$1" "$2" ;;
+  *) sed -n '2,20p' "$0"; [ "$cmd" = help ] ;;
+esac
