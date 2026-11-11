@@ -22,6 +22,7 @@ table inet dsserver_fw {
         type inet_service; flags interval
         elements = {
             22 comment "ssh (host) 2026-11-10",
+            443 comment "HTTPS proxy (Caddy, proxy/) 2026-11-11",
             1714-1764 comment "KDE Connect (host) 2026-11-10",
         }
     }

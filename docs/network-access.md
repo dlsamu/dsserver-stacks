@@ -34,7 +34,7 @@ Removing access is the same process, deleting the element instead.
 | SSH (host) | 22/tcp | lan | administration from dsoffice and Windows | 2026-11-10 |
 | KDE Connect (host) | 1714–1764/tcp+udp | lan | existing behaviour kept | 2026-11-10 |
 | mDNS (host) | 5353/udp | lan | `dsserver.local` name resolution | 2026-11-10 |
-| Caddy HTTPS proxy (`proxy/`) | 443/tcp | lan — **planned, needs approval; not yet in `lan_tcp`** | trusted HTTPS for *.rubusdua.net ([https.md](https.md)) | — |
+| Caddy HTTPS proxy (`proxy/`) | 443/tcp | lan (approved by you 2026-11-11) | trusted HTTPS for *.rubusdua.net ([https.md](https.md)) | 2026-11-11 |
 
 ## Checking
 - What listens: `ss -tulpn`. Anything on `0.0.0.0` / `*` without a register entry is reachable only from localhost and docker-internal traffic, because the firewall drops it.

@@ -43,7 +43,7 @@ case ${1:-} in
       sudo sh -c "umask 077; cat > /etc/beacon-secrets/cloudflare.env.new && mv /etc/beacon-secrets/cloudflare.env.new /etc/beacon-secrets/cloudflare.env"'
     unset tok
     echo "installed on Beacon: /etc/beacon-secrets/cloudflare.env (root 0600)"
-    "$0" token-check
+    bash "$0" token-check
     shred -u "$STAGED" && echo "local copy $STAGED shredded" ;;
   token-check)
     # The token is put into curl's config on stdin by shell builtins: never in a command line or log.
