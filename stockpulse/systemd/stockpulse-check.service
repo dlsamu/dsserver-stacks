@@ -1,0 +1,8 @@
+[Unit]
+Description=StockPulse application check (DB, storage, reports freshness, backup, web health)
+Documentation=file:///srv/stacks/stockpulse/README.md
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/dsserver-admin/host/scripts/15-stockpulse.sh check

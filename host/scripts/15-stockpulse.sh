@@ -13,6 +13,11 @@
 #   push-test        one push to topic "stockpulse-test" (no device subscribes); needs the Firebase key
 #   job us|intl|ath  PRODUCTION run (real data; pushes if the key exists). Used by the timers.
 #   backup           history.db -> data/backups/history-<time>.db (backup API, integrity check, keep 14)
+#   check            application check (stockpulse/check.py + web container health); exit 1 = problem.
+#                    Run every 15 min by stockpulse-check.timer: a failure leaves the unit failed, which
+#                    Beszel's SystemdFailed alert (dsserver) sends to ntfy; the next passing run clears it.
+#   check-test-fail | check-test-clear   inject / remove a deliberate check failure (alert pipeline test)
+#   check-enable     install + enable stockpulse-check.timer
 #   units-install    install the systemd units (nothing enabled)
 #   backup-enable    enable the daily backup timer
 #   timers-enable | timers-disable   the three weekday screener timers (production schedule)
@@ -29,7 +34,8 @@ APP=/srv/appdata/stockpulse
 TEST=/srv/appdata/stockpulse-test
 SECRETS=/etc/stockpulse-secrets
 NAME=stockpulse.rubusdua.net
-UNITS="stockpulse-job@.service stockpulse-us.timer stockpulse-intl.timer stockpulse-ath.timer stockpulse-backup.service stockpulse-backup.timer"
+UNITS="stockpulse-job@.service stockpulse-us.timer stockpulse-intl.timer stockpulse-ath.timer stockpulse-backup.service stockpulse-backup.timer stockpulse-check.service stockpulse-check.timer"
+STATE=/var/lib/stockpulse
 ARCHIVE_RE='report(_ath|_intl_(pacific|european|nordic))?_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}(_TEST)?\.html'
 UID_=10010
 ok()   { echo "ok    $*"; }
@@ -170,13 +176,16 @@ EOF
 /../../../etc/passwd 404
 /run/secrets/stockpulse/firebase-service-account.json 404
 EOF
-    a=$(ls "$APP/reports/reports" | grep -E "^$ARCHIVE_RE\$" | head -n1)
+    a=$(find "$APP/reports/reports" -maxdepth 1 -type f -regextype posix-extended -regex ".*/$ARCHIVE_RE" -printf '%f\n' -quit)
     [ "$(get "/archive/$a")" = 200 ] && ok "GET /archive/<a real report> -> 200" || bad "archived report not served"
     for m in POST PUT DELETE; do [ "$(get / $m)" = 405 ] && ok "$m / -> 405" || bad "$m / not refused"; done
     h=$(curl -sI --resolve "$NAME:443:127.0.0.1" "https://$NAME/latest/us")
     grep -qi "content-security-policy: default-src 'none'" <<<"$h" && grep -qi 'cache-control: no-store' <<<"$h" && grep -qi 'x-content-type-options: nosniff' <<<"$h" \
       && ok "headers: CSP default-src 'none', Cache-Control no-store, nosniff" || bad "security headers missing"
     rm -f /tmp/stockpulse-verify.body
+    cleanup; trap - EXIT
+    left=$(cd "$APP/reports" && ls -A | grep -vE '^(report(_ath|_intl_(pacific|european|nordic))?\.html|reports)$' || true)
+    [ -z "$left" ] && ok "canaries removed; report dir holds only reports" || bad "unexpected files in report dir: $left"
     [ "$FAILS" = 0 ] && echo "15 VERIFY PASSED" || fail "$FAILS check(s) failed" ;;
 
   status:1)
@@ -229,13 +238,32 @@ old = sorted(glob.glob("/data/backups/history-*.db"))[:-14]
 for f in old: os.remove(f)
 print("backup", os.path.basename(dst), "integrity ok,", n, "runs;", len(old), "old removed")' ;;
 
+  check:1)
+    rc=0
+    python3 -I "$STACK/check.py" --data "$APP/data" --reports "$APP/reports" --state "$STATE" --uid "$UID_" || rc=1
+    h=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' stockpulse-web 2>/dev/null || echo absent)
+    if [ "$h" = "running healthy" ]; then ok "web container running, healthy"; else echo "FAIL  web container: $h"; rc=1; fi
+    exit $rc ;;
+  check-test-fail:1)  install -d -m 0755 "$STATE"; touch "$STATE/fail-test"; ok "deliberate check failure ON (next check run fails)" ;;
+  check-test-clear:1) rm -f "$STATE/fail-test"; ok "deliberate check failure OFF" ;;
+  check-enable:1)
+    for u in stockpulse-check.service stockpulse-check.timer; do install -m 0644 "$STACK/systemd/$u" "/etc/systemd/system/$u"; done
+    systemctl daemon-reload; systemctl enable --now stockpulse-check.timer >/dev/null 2>&1
+    systemctl is-enabled stockpulse-check.timer ;;
   units-install:1)
     for u in $UNITS; do install -m 0644 "$STACK/systemd/$u" "/etc/systemd/system/$u"; done
     systemctl daemon-reload
     ok "units installed (none enabled): $UNITS" ;;
-  backup-enable:1)  systemctl enable --now stockpulse-backup.timer 2>&1 | tail -n1 || true; systemctl is-enabled stockpulse-backup.timer ;;
-  timers-enable:1)  for t in us intl ath; do systemctl enable --now "stockpulse-$t.timer" >/dev/null 2>&1; done; systemctl list-timers 'stockpulse-*' --no-pager | head -n 6 ;;
-  timers-disable:1) for t in us intl ath; do systemctl disable --now "stockpulse-$t.timer" >/dev/null 2>&1 || true; done; ok "screener timers disabled" ;;
+  backup-enable:1)
+    systemctl enable --now stockpulse-backup.timer >/dev/null 2>&1; install -d -m 0755 "$STATE"; touch "$STATE/backup-enabled"
+    systemctl is-enabled stockpulse-backup.timer ;;
+  timers-enable:1)
+    for t in us intl ath; do systemctl enable --now "stockpulse-$t.timer" >/dev/null 2>&1; done
+    install -d -m 0755 "$STATE"; touch "$STATE/timers-enabled-at"   # report freshness is checked from now on
+    systemctl list-timers 'stockpulse-*' --no-pager | head -n 7 ;;
+  timers-disable:1)
+    for t in us intl ath; do systemctl disable --now "stockpulse-$t.timer" >/dev/null 2>&1 || true; done
+    rm -f "$STATE/timers-enabled-at"; ok "screener timers disabled (freshness no longer checked)" ;;
   down:1) dc down 2>&1 | tail -n 2 ;;
-  *) echo "usage: sudo $0 preflight|build|import|up|verify|status|test-reset|run-test us|intl|ath|push-test|job us|intl|ath|backup|units-install|backup-enable|timers-enable|timers-disable|down" >&2; exit 2 ;;
+  *) echo "usage: sudo $0 preflight|build|import|up|verify|status|test-reset|run-test us|intl|ath|push-test|job us|intl|ath|backup|check|check-test-fail|check-test-clear|check-enable|units-install|backup-enable|timers-enable|timers-disable|down" >&2; exit 2 ;;
 esac

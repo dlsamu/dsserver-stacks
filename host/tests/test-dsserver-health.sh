@@ -86,6 +86,11 @@ check "docker failed: success URL"     [ "$(conf)" = "url = \"$URL\"" ]
 check "docker failed: info"            has "$(args)" "docker:failed"
 check "docker failed: local detail"    has "$OUT" "application-layer unit failed"
 
+# 4b StockPulse job/check failed -> application layer (Beszel alerts on it), not a host failure
+reset; export FAKE_FAILED='stockpulse-job@us.service loaded failed failed S\nstockpulse-check.service loaded failed failed C\n'; run --ping
+check "stockpulse failed: success URL" [ "$(conf)" = "url = \"$URL\"" ]
+check "stockpulse failed: local detail" has "$OUT" "application-layer unit failed (not a host failure): stockpulse-job@us.service"
+
 # 5 SMART failing / unreadable / old error-log bit only
 reset; export FAKE_SMART_RC=8; run --ping
 check "smart rc8: disk_health"         has "$(args)" "problems=disk_health"

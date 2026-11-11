@@ -45,7 +45,7 @@ if [ "$(id -u)" != 0 ]; then
     DISK_MAX_PCT=${DSH_DISK_MAX_PCT:-$DISK_MAX_PCT}; EXPECT_OWNER=$(id -u)
 fi
 # Units that belong to the application layer: reported, never a host failure.
-APP_UNITS_RE='^(docker\.service|docker\.socket|containerd\.service|dsserver-health\.service)$'
+APP_UNITS_RE='^(docker\.service|docker\.socket|containerd\.service|dsserver-health\.service|stockpulse-[a-z0-9@.-]+\.service)$'
 URL_RE='^https://hc-ping\.com/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 
 MODE=${1:-}

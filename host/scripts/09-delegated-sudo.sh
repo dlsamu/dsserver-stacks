@@ -60,6 +60,9 @@ FILES=(
     stockpulse/systemd/stockpulse-ath.timer
     stockpulse/systemd/stockpulse-backup.service
     stockpulse/systemd/stockpulse-backup.timer
+    stockpulse/systemd/stockpulse-check.service
+    stockpulse/systemd/stockpulse-check.timer
+    stockpulse/check.py
 )
 EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh host/scripts/14-https-proxy.sh host/scripts/15-stockpulse.sh "
 
@@ -124,6 +127,10 @@ COMMANDS=(
     "host/scripts/15-stockpulse.sh job intl"
     "host/scripts/15-stockpulse.sh job ath"
     "host/scripts/15-stockpulse.sh backup"
+    "host/scripts/15-stockpulse.sh check"
+    "host/scripts/15-stockpulse.sh check-test-fail"
+    "host/scripts/15-stockpulse.sh check-test-clear"
+    "host/scripts/15-stockpulse.sh check-enable"
     "host/scripts/15-stockpulse.sh units-install"
     "host/scripts/15-stockpulse.sh backup-enable"
     "host/scripts/15-stockpulse.sh timers-enable"
