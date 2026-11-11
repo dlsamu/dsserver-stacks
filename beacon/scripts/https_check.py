@@ -5,6 +5,7 @@
 
 --ip      connect to this address instead of resolving NAME (SNI and Host stay NAME)
 --insecure  skip certificate verification (only for the internal-CA proxy test)
+--live    with --login: subscribe to "systems" (the dashboard's live view) and wait for a pushed update
 --login   also sign in as the automation account (needs root on Beacon: /root/beszel-automation/credentials)
 
 Checks: name resolution, TLS certificate (public trust chain, hostname, days left), dashboard page,
@@ -32,6 +33,7 @@ def main():
     p.add_argument("name"); p.add_argument("--ip"); p.add_argument("--port", type=int, default=443)
     p.add_argument("--insecure", action="store_true"); p.add_argument("--login", action="store_true")
     p.add_argument("--min-days", type=int, default=14)
+    p.add_argument("--live", action="store_true", help="with --login: wait for a pushed metrics update (up to 90 s)")
     a = p.parse_args()
 
     if a.ip:
@@ -111,7 +113,39 @@ def main():
         items = json.loads(body).get("items", []) if st == 200 else []
         (ok if st == 200 and items else bad)(
             f"authenticated read: HTTP {st}, systems " + ", ".join(f"{i['name']}={i['status']}" for i in items))
+        if a.live:
+            live(conn, token)
     return finish()
+
+
+def live(conn, token):
+    """The dashboard's live metrics: authenticated realtime subscription; an agent update must arrive."""
+    c = conn(); c.timeout = 100
+    c.request("GET", "/api/realtime", headers={"Accept": "text/event-stream"})
+    r = c.getresponse(); cid = None
+    while cid is None:
+        l = r.readline()
+        if l.startswith(b"data:"):
+            cid = json.loads(l[5:])["clientId"]
+    c2 = conn(); c2.request("POST", "/api/realtime", body=json.dumps({"clientId": cid, "subscriptions": ["systems"]}),
+                            headers={"Content-Type": "application/json", "Authorization": token})
+    st = c2.getresponse().status; c2.close()
+    if st != 204:
+        bad(f"live metrics: subscribe HTTP {st}"); return
+    t0 = time.time(); ev = None
+    try:
+        while time.time() - t0 < 90:
+            l = r.readline()
+            if l.startswith(b"event:systems"):
+                ev = l
+            elif ev and l.startswith(b"data:"):
+                d = json.loads(l[5:]); rec = d.get("record", {})
+                ok(f"live metrics pushed over HTTPS after {time.time()-t0:.0f}s: {rec.get('name')} {d.get('action')}, "
+                   f"cpu {rec.get('info', {}).get('cpu')}%")
+                c.close(); return
+    except (OSError, socket.timeout):
+        pass
+    bad("live metrics: no system update within 90 s"); c.close()
 
 
 def finish():

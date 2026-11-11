@@ -7,7 +7,7 @@ Raspberry Pi 5 (8 GB), Raspberry Pi OS Lite 64-bit (Debian 13 trixie), 128 GB mi
 ```
  phone (ntfy app) <── ntfy.sh <── Beszel alerts ──┐          Healthchecks.io ──email──> Gmail
                                                   │            ▲ check "beacon"   ▲ check "dsserver-host"
- browser (LAN) ──http :8090──> Beacon: Beszel hub (Docker) ─────┘ (hub heartbeat)  │ (dsserver-health, A2)
+ browser (LAN) ─https :443─> Caddy ──> Beszel hub (Docker) ─────┘ (hub heartbeat)  │ (dsserver-health, A2)
                                  ▲   ▲   network checks run by Beacon's agent      │
           WebSocket (outbound)   │   │                                             │
      Beacon agent (native) ──────┘   └────── dsserver agent (native) ──────────────┘ dsserver
@@ -22,13 +22,13 @@ Raspberry Pi 5 (8 GB), Raspberry Pi OS Lite 64-bit (Debian 13 trixie), 128 GB mi
 | Hub data | Beacon `/srv/appdata/beszel` (0700, uid 10001) | PocketBase: users, systems, alerts, tokens, metrics. Retention is fixed by Beszel at about 30 days (1-minute to 8-hour tiers), a few MB |
 | Agent | native `beszel-agent.service` on each host (`agent/`) | Release tarball with pinned SHA-256 (the upstream `.deb` and install script add the user to the `docker` group, so they are not used). User `beszel`, not in the docker, disk or sudo groups; sandboxed; `DISABLE_SSH=true`, so it opens no port; connects **out** to the hub |
 | Docker metrics | `compose/socket-proxy` (wollomatic/socket-proxy 1.13.2) on each Docker host | Allows only `GET /version`, `/info`, `/containers/json`, `/containers/<id>/stats`. Everything else is refused (403/405), including inspect (environment variables), logs, archive/export, exec and every write. The socket `/run/beszel-docker/docker.sock` sits in a 0750 directory owned by uid 64001 and group `beszel`, so only the agent can open it. No network, read-only, no capabilities |
-| Firewall | Beacon, native nftables `firewall/` (`beacon-firewall.service`) | Incoming dropped by default; SSH 22, hub 8090 and mDNS allowed from 192.168.68.0/24 only. `nftables.service` stays disabled (its config flushes Docker's rules) |
+| Firewall | Beacon, native nftables `firewall/` (`beacon-firewall.service`) | Incoming dropped by default; SSH 22, HTTPS 443 and mDNS allowed from 192.168.68.0/24; hub 8090 only from dsserver (its agent) since the HTTPS cutover 2026-11-11. `nftables.service` stays disabled (its config flushes Docker's rules) |
 | OS | native | unattended-upgrades (Debian + Raspberry Pi archive), no automatic reboot; sshd key-only, `AllowUsers daniel`; journald capped at 500 MB; memory cgroup enabled (`cgroup_enable=memory` in `cmdline.txt`, needed for container memory figures and limits) |
 | API automation | `scripts/bz` on dsserver → `beszel_api.py` on Beacon, account `automation@beacon.lan` (role user) | See "Automation (API)" |
 | Detecting a dead Beacon | the hub's built-in heartbeat (POST every 60 s) → Healthchecks.io check `beacon` (period 5 min, grace 10 min) → email | **Active** since 2026-11-11 08:11; set with `scripts/set-heartbeat.sh` |
 
 ## Access
-- Dashboard: **http://beacon.local:8090** (or http://192.168.68.121:8090), home LAN only. Login `admin@beacon.lan`; the password is in your password manager (Bitwarden) only. The plaintext copies on dsserver and Beacon were deleted on 2026-11-11. Forgotten: see Recovery.
+- Dashboard: **https://beacon.rubusdua.net** (trusted certificate), home LAN only. Plain http://…:8090 is closed to the LAN since 2026-11-11 (it still answers on dsserver, because dsserver's agent needs it; use HTTPS there too). Break-glass: `ssh -L 8090:127.0.0.1:8090 beacon` → http://localhost:8090. Login `admin@beacon.lan`; the password is in your password manager (Bitwarden) only. The plaintext copies on dsserver and Beacon were deleted on 2026-11-11. Forgotten: see Recovery.
 - SSH: `ssh beacon` from dsserver (key `~/.ssh/beacon_admin`, passwordless sudo on Beacon).
 - Not reachable from the internet or the tailnet.
 
@@ -72,12 +72,12 @@ Each alert sends a recovery message when it clears. Beszel can't announce that B
 ## Adding another machine
 **Linux host with an agent**
 1. Dashboard → **Add System**: enter the name, keep the default port, and copy the **token** and the hub's **public key** shown in the dialog.
-2. On that machine, create an env file (root, 0600) with: `HUB_URL=http://192.168.68.121:8090`, `TOKEN=<token>`, `KEY="<public key>"`, `SYSTEM_NAME=<name>`, and either `DOCKER_HOST=unix:///run/beszel-docker/docker.sock` (Docker hosts) or `DOCKER_HOST=` (no Docker).
+2. On that machine, create an env file (root, 0600) with: `HUB_URL=https://beacon.rubusdua.net`, `TOKEN=<token>`, `KEY="<public key>"`, `SYSTEM_NAME=<name>`, and either `DOCKER_HOST=unix:///run/beszel-docker/docker.sock` (Docker hosts) or `DOCKER_HOST=` (no Docker).
 3. Copy `agent/` (and `compose/socket-proxy/` for Docker hosts) to it and run `sudo bash install-agent.sh <env-file> [--with-docker-proxy]`.
 4. Dashboard → the system's bell icon: switch on the same alerts as above.
 
 **Other cases**
-- **Father's laptop** (remote): first put Beacon on the tailnet and allow 8090 on `tailscale0` in `beacon-firewall.nft`; then the agent uses Beacon's tailnet address as `HUB_URL`. No Status alert (it's often off).
+- **Father's laptop** (remote): first put Beacon on the tailnet and allow 443 (or 8090) on `tailscale0` in `beacon-firewall.nft`; then the agent uses a URL reachable over the tailnet as `HUB_URL`. No Status alert (it's often off).
 - **New Synology NAS:** reachability first (ping and TCP 5001 network monitors on beacon), plus DSM's own notifications for disks, pools and scrubs. The Synology Beszel package is optional later.
 - **Replay and devices you don't want to touch:** a ping or TCP network monitor only, no agent, and no Status alert for devices that are normally off.
 
@@ -104,7 +104,7 @@ Claude (or you) administers Beszel from dsserver with **`bash /srv/stacks/beacon
 
 **Rotate the password** (Beacon, root): needs a temporary superuser like the bootstrap: simplest is revoke + bootstrap again (below); alerts owned by the automation account would be lost, so list them first (`bz alerts`).
 
-**Revoke:** 0. First `alert-ownership.sh rollback` (see above). 1. Dashboard → `http://beacon.local:8090/_/` (your login) → Collections → *users* → `automation@beacon.lan` → Delete (this ends all its sessions and deletes its own alerts and notification settings). 2. `ssh beacon 'sudo rm -r /root/beszel-automation'`. 3. Optional: remove `SHARE_ALL_SYSTEMS` from `compose/beszel/compose.yaml` and run `scripts/deploy.sh`. To start over afterwards: `bash /srv/stacks/beacon/scripts/setup-automation.sh`.
+**Revoke:** 0. First `alert-ownership.sh rollback` (see above). 1. Dashboard → `https://beacon.rubusdua.net/_/` (your login) → Collections → *users* → `automation@beacon.lan` → Delete (this ends all its sessions and deletes its own alerts and notification settings). 2. `ssh beacon 'sudo rm -r /root/beszel-automation'`. 3. Optional: remove `SHARE_ALL_SYSTEMS` from `compose/beszel/compose.yaml` and run `scripts/deploy.sh`. To start over afterwards: `bash /srv/stacks/beacon/scripts/setup-automation.sh`.
 
 **Bootstrap safety (how the account was made):** a temporary superuser with a random password is created with Beszel's CLI, used for the account and its notification settings only, deleted in a `finally` block and verified gone (superuser list equal to the snapshot; its login refused). A read-only snapshot of alerts, your account, notification settings, systems, network checks, agent tokens and history counts is compared before/after.
 
@@ -112,7 +112,7 @@ Claude (or you) administers Beszel from dsserver with **`bash /srv/stacks/beacon
 Design, Cloudflare token and DNS setup: [docs/https.md](../docs/https.md). Caddy (container `caddy`, host network,
 443/tcp from the LAN) proxies to the hub on 127.0.0.1:8090; certificate from Let's Encrypt via DNS-01, renewed automatically.
 Run on dsserver: `bash /srv/stacks/beacon/scripts/https.sh build|test-local|token-install|token-check|up|verify|status|down`.
-The existing http://192.168.68.121:8090 path stays until the approved cutover; break-glass: `ssh -L 8090:127.0.0.1:8090 beacon`.
+Cutover done 2026-11-11: hub `APP_URL=https://beacon.rubusdua.net` (alert links); :8090 from dsserver only (agent). Break-glass: `ssh -L 8090:127.0.0.1:8090 beacon`.
 Secret: `/etc/beacon-secrets/cloudflare.env` (root 0600). Data: `/srv/appdata/caddy`.
 
 ## Recovery
@@ -124,7 +124,7 @@ Secret: `/etc/beacon-secrets/cloudflare.env` (root 0600). Data: `/srv/appdata/ca
 | Beacon hangs or is unreachable | Power-cycle it (tested headless boot: SSH back in ~15 s, all services start) |
 | **microSD failed** | 1. New card in the USB reader on dsserver. 2. `sudo bash /srv/stacks/beacon/flash-sd.sh /srv/stacks/beacon/images/2026-10-06-raspios-trixie-arm64-lite.img.xz` (or a newer image: update the pinned hash and device size in the script). 3. Boot. Remove the old line from `~/.ssh/known_hosts_beacon`, connect once with `ssh -o StrictHostKeyChecking=accept-new beacon`, and compare the fingerprint with `ssh beacon ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`. 4. `ssh beacon 'sudo bash -s' < /srv/stacks/beacon/setup-base.sh`, then reboot (memory cgroup). 5. `ssh beacon 'sudo bash -s' < /srv/stacks/beacon/scripts/install-docker.sh`. 6. `bash /srv/stacks/beacon/scripts/deploy.sh`. 7. Firewall: `apply.sh try`, test, `confirm`. 8. **Restore** the newest backup (below). 9. Beacon's agent: create a new token for system *beacon* (Dashboard → system → settings), write its env file, run `install-agent.sh ... --with-docker-proxy`. 10. `set-heartbeat.sh` again. Agents on other hosts reconnect by themselves (same hub key, from the backup) |
 | **Restore hub data** | `scp ~/beacon-backups/<newest>.tar.gz beacon:/tmp/b.tgz`, then `ssh beacon 'sudo docker stop beszel-hub; sudo rm -rf /srv/appdata/beszel; sudo tar -C /srv/appdata -xzf /tmp/b.tgz; sudo chown -R 10001:10001 /srv/appdata/beszel; sudo docker start beszel-hub; rm /tmp/b.tgz'` (tested 2026-11-10 into a temporary hub: healthy, users intact) |
-| Forgotten dashboard password | `ssh beacon 'sudo docker exec beszel-hub /beszel superuser upsert admin@beacon.lan <new password>'`, log in at http://beacon.local:8090/_/ and reset the user's password there |
+| Forgotten dashboard password | `ssh beacon 'sudo docker exec beszel-hub /beszel superuser upsert admin@beacon.lan <new password>'`, log in at https://beacon.rubusdua.net/_/ and reset the user's password there |
 
 ## Secrets (none in Git)
 | Secret | Where |

@@ -17,7 +17,8 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     environment:
-      APP_URL: http://beacon.local:8090
+      # Links in alert notifications (and the hub's own idea of its address): the HTTPS name (docs/https.md).
+      APP_URL: https://beacon.rubusdua.net
       # Every signed-in account can see and manage every system (still no access for "readonly" users
       # to change anything). Lets the API automation account (role "user", README "Automation") manage
       # all systems without being added to each one. Accounts: yours + automation@beacon.lan only.

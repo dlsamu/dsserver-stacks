@@ -16,7 +16,8 @@
 #   bz api METHOD /api/...             raw call; JSON body on stdin (redacted output)
 # Reference: /srv/stacks/beacon/README.md "Automation (API)".
 set -euo pipefail
-HUB_URL=http://192.168.68.121:8090
+# New agents connect over HTTPS (WebSocket through Caddy); since the cutover, plain :8090 is open to the dsserver agent only.
+HUB_URL=https://beacon.rubusdua.net
 
 api() {   # api METHOD PATH  (body on stdin for POST/PATCH)
     local m=$1 p=$2

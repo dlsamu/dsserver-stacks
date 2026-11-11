@@ -105,18 +105,35 @@ No record for the zone apex, no wildcard and no MX. Caddy adds and removes its o
 | Restart recovery | **tested**: Beacon: SIGKILL of Caddy → Docker restarted it within 1 s and kept the stored certificate (no new request). dsserver: container recreated by `14 up` → certificate reused. Both `restart: unless-stopped`; docker, firewall and agent units enabled at boot. **Not tested:** an actual reboot (not allowed), and a SIGKILL on dsserver (14 has no such mode; same image and policy as Beacon) |
 | Renewal | **path tested**: a throw-away Caddy on Beacon obtained a fresh certificate from Let's Encrypt **staging** with the same token and plugin, then was removed. Real renewal is automatic, about 30 days before expiry (first around 2027-01-10). **Not observed yet** |
 | Monitoring after the change | **checked**: both systems up, 13 alerts / 0 firing, `13 VERIFY PASSED`, dsserver heartbeat ran successfully at 16:02, Beacon hub sends its Healthchecks ping (HTTPS connection 16:05:30), `bz test-notify` sent, 0 failed units on both hosts, http://192.168.68.121:8090 still answers |
-| Retire LAN plain HTTP (Beacon :8090), set `APP_URL` | **not started; needs your approval** |
+| Retire LAN plain HTTP (Beacon :8090), set `APP_URL` | **done 2026-11-11** (see Cutover) |
 
-## Cutover (later, with approval)
-- **Browsers** move to https://beacon.rubusdua.net. Set the hub's `APP_URL` to that address so links in
-  alerts point there. This restarts the hub for a few seconds.
-- **Agents** keep plain `ws://` to :8090 for now. Agent and hub authenticate each other with the
-  token and the hub's SSH key signature, so this is not a credential exposure. Moving the dsserver
-  agent to `https://beacon.rubusdua.net` would make it depend on public DNS. If done, also add a
-  dsserver `/etc/hosts` entry for beacon.rubusdua.net.
-- **Retiring :8090 from the LAN** means allowing it only from dsserver's address
-  (agent) and loopback, instead of all of 192.168.68.0/24. Applied with `firewall/apply.sh try` (automatic
-  revert after 5 minutes) and then `confirm`.
+## Cutover (done 2026-11-11, approved by you)
+- **Consumers of :8090 found** by sampling Beacon's connections for 2 minutes:
+  - over loopback: Beacon's own agent (`HUB_URL=http://127.0.0.1:8090`) and Caddy. The firewall doesn't filter loopback.
+  - from 192.168.68.115: dsserver's agent (WebSocket), plus Firefox on dsserver showing the dashboard over HTTP.
+  - nothing else.
+- **Hub:** `APP_URL=https://beacon.rubusdua.net` (supported environment setting, `compose/beszel/compose.yaml`), so alert links use the
+  HTTPS name. The hub was recreated once. Its data is unchanged: alerts (13), notification settings, users,
+  systems, superusers and alert history are identical by digest before and after. The network checks' settings are unchanged; only the
+  timestamp of their status reset moved.
+- **Beacon firewall:** 22 and 443 from 192.168.68.0/24, and **8090 only from 192.168.68.115**. Applied with
+  try → test → confirm. The installed file equals the repo.
+- **Agents:** they stay on plain `ws://` to :8090. Agent and hub authenticate each other with the token and the hub's key, so
+  no credential crosses the network in plain text. **New agents** (`bz add-system`) get `HUB_URL=https://beacon.rubusdua.net`.
+- **Known limitation:** the source-address rule can't tell processes apart, so **a browser on dsserver itself can still
+  open http://192.168.68.121:8090**. Use the HTTPS bookmark there. Closing 8090 completely would require moving the dsserver agent to
+  `https://beacon.rubusdua.net` (WebSocket over HTTPS is tested), plus a dsserver `/etc/hosts` entry so it doesn't depend on public DNS.
+  That is optional and not done.
+
+### Cutover verification (2026-11-11 16:10–16:21)
+| Check | Result |
+|---|---|
+| Before: certificate, dashboard, health, SSE, WebSocket endpoint, login, authenticated read, live metrics pushed over HTTPS (new `--live` check) | passed |
+| New dsserver agent connection through the new rule (`13 test-recovery`: SIGKILL → restart → reconnect) | passed |
+| Ordinary LAN client (temporary network namespace on Beacon as 192.168.68.250; removed afterwards) | :8090 **blocked** (logged as `beacon-fw drop … DPT=8090`), https://beacon.rubusdua.net **200**, SSH open |
+| Survives restarts: `docker restart caddy`, `docker restart beszel-hub`, `systemctl restart beacon-firewall` (boot load path) | HTTPS check passed after each; both systems back `up` |
+| After: 13 alerts / 0 firing, configuration identical, `13 VERIFY PASSED`, live metrics over HTTPS, `bz test-notify` sent, dsserver heartbeat success 16:17:43, Beacon hub heartbeat 16:20:04, 0 failed units on both hosts | passed |
+| Not tested | reboots; a real alert carrying the new link (needs an alert to fire) |
 
 ## Operations
 - **Renewal:** automatic. Check: `bash beacon/scripts/https.sh status` (expiry date) and
