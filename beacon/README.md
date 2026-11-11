@@ -97,6 +97,7 @@ Claude (or you) administers Beszel from dsserver with **`bash /srv/stacks/beacon
 
 **Limits:**
 - **Alerts belong to the account that created them.** Your 13 alert rules are owned by your dashboard account, so `bz` cannot see or change them (Beszel's rule `user = @request.auth.id`); `bz alerts`/`set-alert` act on the automation account's own rules. Ownership transfer is a separate, not yet approved step.
+  - **Prepared, not run:** `scripts/alert-ownership.sh check|migrate|rollback` (→ `alert_owner.py` on Beacon) changes only the owner of the existing records, in place (same IDs, thresholds, durations, state; history untouched), with a temporary superuser that is always deleted and verified gone, a before/after comparison that fails on any other change, and automatic undo if a step fails. Snapshots: `/root/beszel-automation/alert-ownership/` on Beacon (0600, no secrets). Rehearsed 2026-11-11 on a throwaway copy of the hub (127.0.0.1:18090, notifications disabled): injected failure after 5 alerts → 5/5 undone, superuser gone; migrate → automation edits a transferred alert (single and bulk), can't give it away; rollback → all 13 back, identical.
 - Your notification settings and account can't be changed by it (by design); creating or deleting **accounts** needs a superuser (Beszel has no other mechanism).
 - Heartbeat status/test and config export need role `admin` (not granted).
 
