@@ -40,6 +40,7 @@ Raspberry Pi 5 (8 GB), Raspberry Pi OS Lite 64-bit (Debian 13 trixie), 128 GB mi
 | Disk health (dsserver) | SMART | stays with smartd and the dsserver heartbeat (A2). Beszel's SMART needs disk-group or root access |
 
 ## Alerts (sent to the ntfy topic in `~/ntfy-beacon.txt`, server ntfy.sh)
+Notification URL (Dashboard → Settings → Notifications): `ntfy://ntfy.sh/<topic>` with **no** `?title=`, so Beszel's own titles come through, e.g. "dsserver disk usage above threshold" / "… below threshold": machine name plus problem or recovery.
 | Alert | Systems | Fires when |
 |---|---|---|
 | Status | beacon, dsserver | down for 5 min |
@@ -105,6 +106,7 @@ Each alert sends a recovery message when it clears. Beszel can't announce that B
 - 2026-11-11 08:06: ntfy test alert + recovery; phone delivery of the alert confirmed by you.
 - 2026-11-11 08:11: Healthchecks heartbeat enabled (`set-heartbeat.sh`); check `beacon` green (confirmed by you).
 - 2026-11-11 08:27: dsserver agent 0.21.1 + socket proxy installed (`13-beszel-agent.sh install`), system resumed in Beszel. Admin password moved to Bitwarden; plaintext files deleted.
+- 2026-11-11 09:21: ntfy titles fixed; Beacon outage detection and dsserver alert/recovery tested.
 
 ## Verification
 **Tested 2026-11-10 (Beacon):**
@@ -129,7 +131,12 @@ Each alert sends a recovery message when it clears. Beszel can't announce that B
 **Start at boot (dsserver), checked but not rebooted:** `beszel-agent.service` enabled (multi-user.target, `Restart=always`), `docker.service` enabled, proxy `restart: unless-stopped`, tmpfiles entry recreates `/run/beszel-docker` before Docker starts. The same set-up survived a real reboot on Beacon.
 
 **Not tested:**
-- a real Status/down alert (machine off for > 5 min) and the Healthchecks "Beacon down" email (planned separately)
+- a real Beszel Status/down alert (an agent's machine off for > 5 min)
 - a dsserver reboot
 
-**Known limitation:** ntfy messages are titled "Beacon" (`?title=Beacon` in the ntfy URL), which replaces Beszel's own titles, so a message doesn't say which machine it is about or whether it is an alert or a recovery. Removing `?title=Beacon` in Dashboard → Settings → Notifications fixes that (not changed yet).
+**Tested 2026-11-11, final reliability tests:**
+- **Notification titles:** `?title=Beacon` removed from the ntfy URL (by you, in the dashboard; topic unchanged). dsserver disk threshold set to 1 %/1 min → ntfy 09:14:01 *"dsserver disk usage above threshold"* (arrived on your phone); restored to 85 %/10 min → 09:21:01 *"dsserver disk usage below threshold"*
+- **Beacon outage detection:** only `beszel-hub` stopped 08:52:00 (last heartbeat 08:51:57), Beacon, SSH, agents, proxy and firewall kept running. Expected "down" at last ping + 5 min period + 10 min grace ≈ 09:07. Healthchecks' **down email received** (confirmed by you, by 09:10). Hub started 09:10:01, healthy 09:10:07; Beacon agent reconnected 09:10:10, dsserver by 09:11:01; first heartbeat 09:11:01; Healthchecks' **up email received** (confirmed by you). History intact (oldest records from 2026-11-10 22:50 kept, new ones continue); no Beszel alert fired during or after the outage
+- **After the tests:** both systems up; all 13 rules at their values, none firing; `13-beszel-agent.sh verify` passed; no failed units on either host; dsserver firewall, Tailscale, Docker and its A2 heartbeat active; heartbeat sending every 60 s
+
+Note: while the hub is stopped the dashboard is unreachable too (it *is* the hub), and Beszel sends no alerts; Healthchecks covers that gap.
