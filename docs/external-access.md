@@ -1,0 +1,100 @@
+# External application access (design, 2026-11-11, NOT ACTIVE)
+
+Goal: StockPulse, Axel's training app and future personal apps reachable from the internet, without opening router
+ports and without exposing administration. Status: **design + offline-validated templates only.** No tunnel, no
+Cloudflare API call, no DNS change, nothing deployed. Decisions marked **DECIDE** are yours.
+
+## Architecture (recommended)
+```
+phone / browser ──HTTPS──> Cloudflare edge ──(Access policy per hostname)──> Cloudflare Tunnel (outbound from dsserver)
+                                                                        └─> tunnel-cloudflared (container, network "proxy")
+                                                                               └─> https://proxy-caddy:443 (SNI = hostname)
+                                                                                      └─> app container (e.g. stockpulse-web:8080)
+```
+- **Outbound only.** `cloudflared` dials out to Cloudflare; no port forward, no firewall change, no public IP needed.
+- **One path for every app: through Caddy.** Same TLS/headers/logging as on the LAN; the tunnel can reach only Caddy
+  (network `proxy`), never the host, SSH, Docker API, Beacon or other containers.
+- **Explicit allowlist.** Public hostnames exist only in `tunnel/routes.toml`; `tunnel/render.py` validates them
+  (zone, no infrastructure names, must have a Caddy site, access mode set) and renders the cloudflared ingress with a
+  final `http_status:404`. Unknown hostnames hitting the tunnel get 404.
+- **Locally managed config, version-controlled.** Ingress lives in Git (rendered), not only in the Cloudflare
+  dashboard. Credentials: the tunnel's own credentials file (scoped to this one tunnel), not the account-wide `cert.pem`.
+
+Files: `tunnel/compose.yaml` (template, digest-pinned 2026.10.7, read-only, no capabilities, uid 65532, healthcheck),
+`tunnel/routes.toml` (registry; StockPulse present, `enabled = false`), `tunnel/render.py` + `test_render.py` (8 tests).
+
+## Stays private (never a route; enforced by render.py's name rule and by design)
+Beacon and its dashboard, `dsserver.rubusdua.net`, SSH, Docker API/socket proxies, Beszel, Caddy admin socket,
+DATASERVER/NAS, the Deco, Replay, Kjell's laptop. LAN names keep their private A records and keep working unchanged.
+
+## Authentication per application
+| App | Recommendation | Alternatives |
+|---|---|---|
+| StockPulse (read-only reports, 2 users) | **Cloudflare Access, e-mail one-time PIN**, allow-list of 2 addresses, session 30 days; `/healthz` bypass for monitoring | (b) Access **service token** sent by the app as headers (no login; but the secret sits in the APK and must be rotated if a phone is lost); (c) Tailscale on the family phones (no public hostname at all; one more app to keep running); (d) public without auth (reports are not very sensitive, but ticker interests + it invites scanning) |
+| Axel's training app | **DECIDE when its design exists.** Default: Access OTP in front + the app's own user accounts (Access alone gives "who may reach it", not per-user data separation) | Access only (if single user); Tailscale |
+| Future personal apps | Access OTP by default; `public` only with a written `public_reason` in routes.toml | |
+
+### Android WebView specifics (StockPulse app)
+- **Google sign-in does not work inside a WebView** (Google blocks embedded browsers) → use e-mail OTP, not Google as
+  the Access identity provider. OTP pages work in a WebView: the user gets a code by e-mail and types it.
+- **JavaScript:** the app currently runs the WebView with **JS disabled** (reports need none). Cloudflare's Access login
+  page needs JS. Required app change at activation: enable JS only while the page's host is the Access team domain
+  (`<team>.cloudflareaccess.com`), keep it off for report pages (toggle in `onPageStarted`). Verify on a device.
+- **Cookies:** Access sets `CF_Authorization` for the hostname; the WebView's `CookieManager` keeps it across app
+  restarts (persisted by default). Session length = Access application session (recommend 30 days).
+- **Notification-driven navigation:** a push opens `MainActivity` with a route → WebView loads
+  `https://stockpulse.rubusdua.net<route>`. With a valid session: direct. With an expired one: Access login, then
+  Access redirects back to the original URL (the route is preserved). No push-payload change needed.
+- **Offline/LAN:** with a single public name (below), the phone uses the internet path at home too; the app's offline
+  page (added 2026-11-11) covers "no internet".
+
+## Hostnames (DECIDE)
+A public DNS name can point either to the LAN IP (today) or to the tunnel, not both.
+1. **Recommended: one name per app, tunnel-only.** `stockpulse.rubusdua.net` becomes a proxied CNAME to the tunnel;
+   home devices also go via Cloudflare (a few ms more; one URL everywhere; the app keeps its default URL).
+   Admin names (`beacon.`, `dsserver.`) stay LAN-only A records.
+2. Split names: public `stockpulse.rubusdua.net` → tunnel, LAN `stockpulse.lan.rubusdua.net` → 192.168.68.115
+   (needs a Caddy site + certificate for the LAN name; two URLs to explain).
+3. Split-horizon DNS (same name, different answers at home): needs a local DNS server; the Deco cannot do it. Not recommended.
+
+## Monitoring (each public app must have it)
+- **Tunnel up:** `tunnel-cloudflared` container health → Beszel `ContainerHealth` (dsserver) → ntfy (existing rule).
+- **End to end from outside:** Beacon HTTP check on `https://<app>/healthz` (bypassed in Access, returns `ok`, no data)
+  → existing `NetworkMonitorLoss` alert. Beacon reaches it through the internet, so this proves DNS + Cloudflare +
+  tunnel + Caddy + app. If Beacon's internet is down, netwatch classifies it as WAN, not as an app failure.
+- **Cloudflare side (free):** tunnel health notifications by e-mail (Cloudflare dashboard → Notifications), optional.
+- **Logs:** cloudflared logs in the container (Beszel Logs panel once dsserver's proxy allows logs).
+
+## Procedures (after the decisions)
+**Prerequisites / credentials needed (none exist yet):**
+1. Cloudflare Zero Trust organisation (free plan, up to 50 users; Cloudflare may ask for a payment method even on the
+   free plan; verify) and a team name.
+2. A **scoped API token**: Account → Cloudflare Tunnel: Edit, Account → Access: Apps and Policies: Edit; Zone
+   `rubusdua.net` → DNS: Edit. Stored like the existing tokens (root 0600, never in Git/chat). Or do the one-time steps
+   in the dashboard instead.
+3. The allowed e-mail addresses (Daniel, Axel).
+
+**Activate StockPulse (one session, reversible):**
+1. Create the tunnel (API/dashboard) → credentials JSON to `/etc/dsserver-secrets/cloudflared/credentials.json`.
+2. Access application for `stockpulse.rubusdua.net`: OTP, allow-list, 30-day session; bypass policy for `/healthz`.
+   **Access first, DNS second**, so the name is never reachable without the policy.
+3. `routes.toml`: `enabled = true` → `render.py --check` → render `config.yml` → `docker compose -f tunnel/compose.yaml up -d`.
+4. DNS: replace the A record `stockpulse` (192.168.68.115) with a proxied CNAME `<tunnel-id>.cfargotunnel.com`.
+5. Verify: from outside (phone on mobile data) login + report; `/healthz` 200; any other hostname on the tunnel → 404;
+   `beacon.`/`dsserver.` unchanged and LAN-only; Beacon external check green; ContainerHealth healthy.
+6. App: build with JS-for-Access change; test login, push tap after session expiry.
+
+**Add a route:** Caddy site for the name (LAN-tested) → routes.toml entry (`enabled = false`) + Access application →
+review → `enabled = true` → render → restart cloudflared → DNS CNAME → Beacon check.
+**Disable a route (fast):** `enabled = false` → render → `docker compose -f tunnel/compose.yaml restart`
+(the hostname then gets 404 from the tunnel); optionally delete the CNAME.
+**Rollback everything:** `docker compose -f tunnel/compose.yaml down`; DNS: CNAME back to the A record 192.168.68.115;
+delete the tunnel and Access app in Cloudflare; remove `/etc/dsserver-secrets/cloudflared`. LAN access is unaffected
+throughout (Caddy and the LAN A records are not touched by the tunnel).
+
+## Offline validation done (2026-11-11)
+- `render.py --check` on the real registry: ok; rendered config contains only enabled routes + default 404.
+- `test_render.py`: 8 tests (infrastructure names refused, other zones/nesting refused, must go through Caddy and
+  have a Caddy site, access modes, duplicates, render output, Caddyfile parsing of the real file).
+- `docker compose -f tunnel/compose.yaml config`: valid.
+- Not validated (needs the binary/tunnel): `cloudflared tunnel ingress validate`, the healthcheck command, Access in a WebView.

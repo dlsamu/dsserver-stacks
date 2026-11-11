@@ -36,6 +36,8 @@ The Raspberry Pi (dsoffice) hands its kept responsibilities to dsserver. Milesto
 | M3 | StockPulse on dsserver, private: [stockpulse/README.md](../stockpulse/README.md) (allowlist `serve.py`, Compose web + job containers, HTTPS via Caddy, systemd timers, 15-min application check → Beszel/ntfy, daily backup) | Deployed 2026-11-11 (LAN only); **production screener timers disabled** pending: US ticker source (NASDAQ API 403), new Firebase key, app URL, timer approval |
 | H1 | HTTPS foundation for rubusdua.net: public DNS-only A records to LAN addresses, Caddy + Let's Encrypt DNS-01 per host, LAN-only 443 ([https.md](https.md)) | Done 2026-11-11 (HTTPS live on beacon. and dsserver.rubusdua.net); LAN cutover done: dashboard HTTPS-only, :8090 limited to the dsserver agent |
 | M4–M7 | public endpoint + app, notification cutover, StockPulse dev, Pi retirement | Not started; see the handover |
+| X1 | External access: Cloudflare Tunnel → Access (OTP) → Caddy, routes allowlisted in `tunnel/routes.toml` ([external-access.md](external-access.md)) | Designed 2026-11-11, templates offline-validated; **not active**; decisions: auth model, hostnames; needs Zero Trust org + scoped token |
+| N1 | Network monitoring on Beacon: 10 Beszel checks + netwatch outage history/classification (beacon/README.md) | Live 2026-11-11 |
 
 ## Deferred (waits on the replacement NAS)
 - B: restic backups of dsserver to the new NAS, plus restore drills and a backup check in the heartbeat. Until then, **no service holding valuable data is deployed**, and dev work is pushed to GitHub.
