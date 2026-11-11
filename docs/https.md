@@ -146,4 +146,4 @@ No record for the zone apex, no wildcard and no MX. Caddy adds and removes its o
   Run `https.sh build` + `up` on Beacon, and `09 install` → `14 build` + `up` on dsserver.
   Watch https://github.com/caddyserver/caddy/releases for security releases.
 - **Rollback:** `https.sh down` / `14-https-proxy.sh down` removes only the Caddy container. The hub and
-  applications are untouched, and the existing :8090 path keeps working until the cutover.
+  applications are untouched. Undo the cutover: restore 8090 for `@lan4` in `beacon/firewall/beacon-firewall.nft` and run `apply.sh try`/`confirm`; `APP_URL` back to the old value + `deploy.sh`.
