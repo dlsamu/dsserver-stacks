@@ -2,7 +2,7 @@
 # The agent never touches /var/run/docker.sock. It talks to /run/beszel-docker/docker.sock, which
 # allows ONLY these GET requests (anchored ^...$ by socket-proxy; every other method is denied):
 #   /version  /info  /containers/json  /containers/<id>/stats  /containers/<id>/logs
-# Logs (2026-11-12, approved): the dashboard's container Logs panel (agent asks for the last 200 lines). Logs
+# Logs (2026-11-11, approved): the dashboard's container Logs panel (agent asks for the last 200 lines). Logs
 # were scanned for credentials first (beacon: `docker logs`; dsserver: `13-beszel-agent.sh log-scan`); an app
 # that prints secrets to stdout must not run on these hosts. Anyone with dashboard access can read them.
 # Denied, among others: container inspect /containers/<id>/json (env vars/secrets; the Detail panel
