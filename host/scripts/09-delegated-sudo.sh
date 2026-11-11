@@ -42,8 +42,12 @@ FILES=(
     host/scripts/10-firewall.sh
     host/files/etc/dsserver-firewall.nft
     host/files/etc/systemd/system/dsserver-firewall.service
+    host/scripts/13-beszel-agent.sh
+    beacon/agent/install-agent.sh
+    beacon/agent/beszel-agent.service
+    beacon/compose/socket-proxy/compose.yaml
 )
-EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh "
+EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh "
 
 # Exact command lines daniel may run as root without a password.
 # A1: everything except 'rollback' (rollback stays a manual, deliberate step).
@@ -74,6 +78,12 @@ COMMANDS=(
     "host/scripts/10-firewall.sh docker-test-start"
     "host/scripts/10-firewall.sh docker-test-allow"
     "host/scripts/10-firewall.sh docker-test-stop"
+# O1/O2 Beszel agent + Docker socket proxy: fixed arguments only; no removal.
+    "host/scripts/13-beszel-agent.sh preflight"
+    "host/scripts/13-beszel-agent.sh install"
+    "host/scripts/13-beszel-agent.sh verify"
+    "host/scripts/13-beszel-agent.sh status"
+    "host/scripts/13-beszel-agent.sh test-recovery"
 )
 
 fail() { echo; echo "FAILED: $*"; echo "Stopped."; exit 1; }

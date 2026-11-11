@@ -382,7 +382,7 @@ Script `host/scripts/09-delegated-sudo.sh` (`show`, `install`, `remove`). Purpos
 |---|---|
 | Snapshot | `/usr/local/lib/dsserver-admin/` (root:root, 0755/0644): copies of the allowed scripts and the files they install, taken from the **reviewed commit** given to `install` (must equal HEAD). Repository edits change nothing until `install` is run again by you |
 | Rule | `/etc/sudoers.d/dsserver-delegated` (0440, visudo-checked): `daniel ALL=(root) NOPASSWD:` the **exact command lines** in `COMMANDS` (script path + one fixed argument). No wildcards, shells, editors or `systemctl` |
-| Currently allowed | `07-unattended-upgrades.sh` `preflight`, `install`, `verify`, `status`, `hold`, `release`, `run-now`; `08-health-heartbeat.sh` `preflight`, `install`, `enable`, `status`, `test-fail`, `test-recover`, `test-silence`, `test-resume`; `10-firewall.sh` `preflight`, `selftest-revert`, `try`, `confirm`, `verify`, `status`, `docker-test-start`, `docker-test-allow`, `docker-test-stop`. Not `rollback` (any), `set-url`, or `revert` (firewall) |
+| Currently allowed | `07-unattended-upgrades.sh` `preflight`, `install`, `verify`, `status`, `hold`, `release`, `run-now`; `08-health-heartbeat.sh` `preflight`, `install`, `enable`, `status`, `test-fail`, `test-recover`, `test-silence`, `test-resume`; `10-firewall.sh` `preflight`, `selftest-revert`, `try`, `confirm`, `verify`, `status`, `docker-test-start`, `docker-test-allow`, `docker-test-stop`; `13-beszel-agent.sh` `preflight`, `install`, `verify`, `status`, `test-recovery` (added 2026-11-11). Not `rollback` (any), `set-url`, `revert` (firewall), or Beszel agent removal |
 | Unchanged | daniel's normal `sudo` (with password); `env_reset`; root login disabled |
 
 **Security review (2026-11-10), fixed before first install:**
@@ -392,6 +392,8 @@ Script `host/scripts/09-delegated-sudo.sh` (`show`, `install`, `remove`). Purpos
 - Checked: all directories on the paths used (/usr/local/{lib,sbin}, /etc/apt, /run, secure_path dirs) are root-owned and not group/world-writable; sudo 1.9.16 with `env_reset`, which strips `BASH_ENV`, `APT_CONFIG`, `LD_*`, `PYTHON*`; exact argument matching (one fixed argument, extra or missing arguments don't match).
 
 **Risk accepted:** any process running as daniel can run exactly these commands without a password. Their worst effect is installing or upgrading packages from the signed Debian repositories (Docker excluded) and pausing/resuming the upgrade timer. Approval of *when* to run e.g. `run-now` stays with you; Claude asks first.
+
+**13 (Beszel agent, 2026-11-11):** the snapshot also holds `beacon/agent/install-agent.sh`, `beszel-agent.service` and `beacon/compose/socket-proxy/compose.yaml`; 13 calls the installer with fixed arguments. Root reads one daniel-owned input, `/home/daniel/.beszel-agent-dsserver.env` (only if it is a regular file, owner daniel, mode 600; symlinks refused), and installs it as `/etc/beszel-agent/env` (root 0600); after the first install it is deleted and updates use `/etc/beszel-agent/env`. Worst effect of the delegated commands: (re)installing the pinned, checksum-verified agent and the digest-pinned proxy, and restarting those two (`test-recovery`). No other container or service is touched. Record: [beacon/README.md](../../beacon/README.md).
 
 **Extending it** (e.g. A2): add the files and command lines to `FILES`/`COMMANDS`, commit, review, then run `sudo bash 09-delegated-sudo.sh install <commit>` yourself.
 

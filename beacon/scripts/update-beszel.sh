@@ -4,7 +4,7 @@
 # 1. Re-pins the hub image digest and the agent tarball SHA-256s from Docker Hub / GitHub release
 #    metadata, shows the diff and asks before continuing.
 # 2. Backs up the hub data (scripts/backup-hub.sh), deploys the hub, updates Beacon's agent.
-# 3. Prints the one sudo command for dsserver's agent (needs your password).
+# 3. Prints the steps for dsserver's agent (commit, refresh the delegated-sudo snapshot, install).
 # Rollback: git checkout the previous commit of /srv/stacks/beacon, run deploy.sh, and if the data
 # format changed restore the backup taken in step 2 (see README "Restore").
 set -euo pipefail
@@ -23,6 +23,7 @@ read -r -p "Deploy Beszel $V now? [y/N] " a; [ "$a" = y ] || { echo "not deploye
 bash $B/scripts/backup-hub.sh
 bash $B/scripts/deploy.sh
 ssh beacon 'sudo bash /srv/beacon/agent/install-agent.sh /etc/beszel-agent/env --with-docker-proxy'
-echo; echo "Beacon updated. dsserver agent (needs your sudo password):"
-echo "  sudo bash /srv/stacks/beacon/agent/install-agent.sh /etc/beszel-agent/env --with-docker-proxy"
-echo "Then commit: git -C /srv/stacks commit -am 'Beszel $V' && git -C /srv/stacks push"
+echo; echo "Beacon updated. dsserver agent:"
+echo "  1. git -C /srv/stacks commit -am 'Beszel $V' && git -C /srv/stacks push"
+echo "  2. in Konsole: sudo bash /srv/stacks/host/scripts/09-delegated-sudo.sh install \$(git -C /srv/stacks rev-parse HEAD)"
+echo "  3. sudo -n /usr/local/lib/dsserver-admin/host/scripts/13-beszel-agent.sh install   (then: ... verify)"
