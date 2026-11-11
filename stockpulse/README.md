@@ -38,11 +38,12 @@ Beszel's dashboard (dsserver → Services) lists the `stockpulse-*` units and th
 Healthchecks.io check "down" (no "dsserver down" e-mail); the ping body shows `info=…,apps:failed` instead. Host problems still
 report `status=fail`. ntfy texts name the StockPulse unit or monitor, so they read differently from host alerts (Status, Disk, …).
 Check tests (no root, no real data): `bash stockpulse/tests/test-check.sh` (18 scenarios).
-Alert test: `15 check-test-fail` → wait for the next quarter-hour run + 5 min → `15 check-test-clear` (cleared at the next run).
+Alert test (≈ 10–15 min): `15 check-test-fail` → `15 check-now` → ntfy after the agent's next unit refresh (≤ 10 min) →
+`15 check-test-clear` → `15 check-now` → recovery message after the next refresh. Without `check-now` add up to 15 min per step.
 
 ## Commands (`S=/usr/local/lib/dsserver-admin/host/scripts/15-stockpulse.sh; sudo -n $S <mode>`)
 `preflight` · `build` · `import` (one-time) · `up` · `verify` · `status` · `test-reset` · `run-test us|intl|ath` ·
-`push-test` · `job us|intl|ath` · `backup` · `check` · `check-test-fail|check-test-clear` · `check-enable` · `test-recovery` ·
+`push-test` · `job us|intl|ath` · `backup` · `check` · `check-now` · `check-test-fail|check-test-clear` · `check-enable` · `test-recovery` ·
 `units-install` · `backup-enable` · `timers-enable|timers-disable` · `down`.
 After changing anything under `stockpulse/` or the Caddyfile: commit, `sudo bash host/scripts/09-delegated-sudo.sh install <commit>`.
 
@@ -56,3 +57,25 @@ After changing anything under `stockpulse/` or the Caddyfile: commit, `sudo bash
 Commit to `~/dev/stock-tracker` (branch `dsserver`), put the full commit id in `SOURCE`, commit, `09 install`, `15 build`, `15 up`,
 `15 verify`. Dependency update: edit `requirements.in`, regenerate `requirements.lock` with `pip-compile --generate-hashes`.
 Rollback: previous `SOURCE` commit → `09 install` → `15 build` (or reuse the old image tag) → `15 up`.
+
+## Tested 2026-11-11 (production, LAN only; screener timers disabled throughout)
+- `15 verify` 49/49 (allowlist, 404 for planted .env/key/db/logs/source/.git/symlink/traversal canaries, 405 for POST/PUT/DELETE, headers, hardening); canaries removed.
+- Crash recovery: web process SIGKILLed → Docker restart, healthy after 6 s, byte-identical report.
+- Backup: `history-20261111-193128.db`, integrity ok; daily timer enabled (first timed run 2026-11-12 03:15).
+- **Web outage** (container removed 19:49:56–20:11:26): Caddy 502 at once; check failed 20:00:15; Beacon NetworkMonitorLoss
+  alert 20:02:50 (≈ 13 min, phone confirmed). Beszel SystemdFailed did NOT fire → found the oneshot gap → units Type=exec (623779e).
+- **Check failure** (flag, after the fix): unit failed 20:30:05 → Beszel alert 20:39:01 (9 min; "Failed services on dsserver",
+  phone confirmed) → flag cleared 20:39:33 → check passed 20:45:10 (unit inactive/success, nothing left failed, no manual step)
+  → recovery 20:49:01 (phone confirmed).
+- **Healthchecks during both failures:** `status=ok info=docker:active,apps:failed` (no "dsserver down" e-mail); back to
+  `status=ok info=docker:active` at 20:47:13.
+- Unit tests: `stockpulse/tests/test-check.sh` 18/18, `host/tests/test-dsserver-health.sh` 53/53.
+- Screener test runs (test copy, pushes impossible): intl and ath ok (same counts as the Pi); **us fails: NASDAQ screener API 403**.
+
+## Known gaps
+- Beacon's loss alert uses a 1-hour window (20 %): ≈ 13 min to alert, ≈ 1 h to recover after a web outage (shared Beacon setting, unchanged).
+- Detection of a check failure takes up to 15 (timer) + 10 (agent unit refresh) + 5 min.
+- If `stockpulse-check.timer` itself stopped, nothing alerts (the Beacon web check still covers web availability).
+- Backups are on the same disk as the data until the NAS/restic backup exists.
+- US screener: `api.nasdaq.com/api/screener` (undocumented website backend behind bot protection) returns 403 from dsserver;
+  recommended replacement: the NASDAQ Trader symbol directory (`nasdaqlisted.txt`, `otherlisted.txt`). Decision pending.

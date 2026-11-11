@@ -133,6 +133,7 @@ COMMANDS=(
     "host/scripts/15-stockpulse.sh check-test-fail"
     "host/scripts/15-stockpulse.sh check-test-clear"
     "host/scripts/15-stockpulse.sh check-enable"
+    "host/scripts/15-stockpulse.sh check-now"
     "host/scripts/15-stockpulse.sh units-install"
     "host/scripts/15-stockpulse.sh backup-enable"
     "host/scripts/15-stockpulse.sh timers-enable"
