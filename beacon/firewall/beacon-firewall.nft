@@ -1,7 +1,7 @@
 #!/usr/sbin/nft -f
 # Beacon host firewall (/srv/stacks/beacon/firewall). Replaces only this table; never `flush ruleset`
-# (Docker keeps its own tables). Incoming: SSH, Beszel hub (8090) and mDNS from the home LAN only.
-# Outgoing is not filtered. Containers here use host or no networking, so no forward rules are needed.
+# (Docker keeps its own tables). Incoming: SSH, HTTPS (443), Beszel hub (8090) and mDNS from the home LAN only.
+# HTTPS (Caddy, 443/tcp, LAN only) added for beacon.rubusdua.net. Outgoing is not filtered. Containers here use host or no networking, so no forward rules are needed.
 table inet beacon_fw
 delete table inet beacon_fw
 table inet beacon_fw {
@@ -19,7 +19,7 @@ table inet beacon_fw {
         udp sport 67 udp dport 68 accept
         ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept
         # Access scope: home LAN
-        ip saddr @lan4 tcp dport { 22, 8090 } accept
+        ip saddr @lan4 tcp dport { 22, 443, 8090 } accept
         ip saddr @lan4 udp dport 5353 accept
         ip6 saddr fe80::/10 udp dport 5353 accept
         meta pkttype { broadcast, multicast } drop

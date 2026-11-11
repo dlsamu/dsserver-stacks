@@ -46,8 +46,12 @@ FILES=(
     beacon/agent/install-agent.sh
     beacon/agent/beszel-agent.service
     beacon/compose/socket-proxy/compose.yaml
+    host/scripts/14-https-proxy.sh
+    proxy/compose.yaml
+    proxy/Caddyfile
+    beacon/compose/caddy/Dockerfile
 )
-EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh "
+EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh host/scripts/14-https-proxy.sh "
 
 # Exact command lines daniel may run as root without a password.
 # A1: everything except 'rollback' (rollback stays a manual, deliberate step).
@@ -84,6 +88,15 @@ COMMANDS=(
     "host/scripts/13-beszel-agent.sh verify"
     "host/scripts/13-beszel-agent.sh status"
     "host/scripts/13-beszel-agent.sh test-recovery"
+    # HTTPS proxy (Caddy, proxy/): fixed arguments; the Caddyfile comes from the reviewed snapshot.
+    "host/scripts/14-https-proxy.sh preflight"
+    "host/scripts/14-https-proxy.sh token-install"
+    "host/scripts/14-https-proxy.sh token-check"
+    "host/scripts/14-https-proxy.sh build"
+    "host/scripts/14-https-proxy.sh up"
+    "host/scripts/14-https-proxy.sh verify"
+    "host/scripts/14-https-proxy.sh status"
+    "host/scripts/14-https-proxy.sh down"
 )
 
 fail() { echo; echo "FAILED: $*"; echo "Stopped."; exit 1; }

@@ -108,6 +108,13 @@ Claude (or you) administers Beszel from dsserver with **`bash /srv/stacks/beacon
 
 **Bootstrap safety (how the account was made):** a temporary superuser with a random password is created with Beszel's CLI, used for the account and its notification settings only, deleted in a `finally` block and verified gone (superuser list equal to the snapshot; its login refused). A read-only snapshot of alerts, your account, notification settings, systems, network checks, agent tokens and history counts is compared before/after.
 
+## HTTPS (https://beacon.rubusdua.net)
+Design, Cloudflare token and DNS setup: [docs/https.md](../docs/https.md). Caddy (container `caddy`, host network,
+443/tcp from the LAN) proxies to the hub on 127.0.0.1:8090; certificate from Let's Encrypt via DNS-01, renewed automatically.
+Run on dsserver: `bash /srv/stacks/beacon/scripts/https.sh build|test-local|token-install|token-check|up|verify|status|down`.
+The existing http://192.168.68.121:8090 path stays until the approved cutover; break-glass: `ssh -L 8090:127.0.0.1:8090 beacon`.
+Secret: `/etc/beacon-secrets/cloudflare.env` (root 0600). Data: `/srv/appdata/caddy`.
+
 ## Recovery
 | Situation | What to do |
 |---|---|

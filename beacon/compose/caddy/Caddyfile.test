@@ -1,0 +1,16 @@
+# Proxy test only (scripts/https.sh test-local): same proxy on 127.0.0.1:8443 with a throw-away
+# internal CA, so the proxy path can be tested before any Cloudflare token exists. Not reachable from the LAN.
+{
+	admin off
+	auto_https disable_redirects
+	skip_install_trust
+	servers {
+		protocols h1 h2
+	}
+}
+
+https://beacon.rubusdua.net:8443 {
+	bind 127.0.0.1
+	tls internal
+	reverse_proxy 127.0.0.1:8090
+}

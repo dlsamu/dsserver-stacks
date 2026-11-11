@@ -1,0 +1,21 @@
+# dsserver HTTPS front door (proxy/README.md). Same Caddy build and certificate method as Beacon:
+# Let's Encrypt via DNS-01 at Cloudflare, automatic renewal, no inbound internet port.
+{
+	admin unix//run/caddy/admin.sock
+	acme_dns cloudflare {env.CF_API_TOKEN}
+	auto_https disable_redirects
+	servers {
+		protocols h1 h2
+	}
+}
+
+# Reserved for future administration interfaces; answers with a plain 404 until one exists.
+dsserver.rubusdua.net {
+	respond "dsserver: nothing published here yet" 404
+}
+
+# Pattern for an application: its container joins the "proxy" network, publishes NO ports, and is
+# reached by container name. Add the block, commit, re-run 09 install, then 14-https-proxy.sh reload.
+# stockpulse.rubusdua.net {
+# 	reverse_proxy stockpulse:8080
+# }

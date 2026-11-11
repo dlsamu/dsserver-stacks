@@ -1,0 +1,18 @@
+# Beacon HTTPS front door (README "HTTPS"). Certificates: Let's Encrypt via DNS-01 at Cloudflare,
+# so nothing has to be reachable from the internet. Renewal is automatic (about 30 days before expiry).
+{
+	# Admin API only on a socket inside the container (no TCP :2019 on the host network).
+	admin unix//run/caddy/admin.sock
+	acme_dns cloudflare {env.CF_API_TOKEN}
+	# HTTPS only: no port 80 listener/redirect, no HTTP/3 (UDP); the firewall opens 443/tcp to the LAN.
+	auto_https disable_redirects
+	servers {
+		protocols h1 h2
+	}
+}
+
+beacon.rubusdua.net {
+	# Beszel hub (host network, loopback). Upgrades (agent WebSocket) and the dashboard's
+	# server-sent events pass through unchanged; Caddy adds X-Forwarded-* itself.
+	reverse_proxy 127.0.0.1:8090
+}
