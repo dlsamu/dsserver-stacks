@@ -100,6 +100,7 @@ COMMANDS=(
     "host/scripts/13-beszel-agent.sh preflight"
     "host/scripts/13-beszel-agent.sh install"
     "host/scripts/13-beszel-agent.sh verify"
+    "host/scripts/13-beszel-agent.sh log-scan"
     "host/scripts/13-beszel-agent.sh status"
     "host/scripts/13-beszel-agent.sh test-recovery"
     # HTTPS proxy (Caddy, proxy/): fixed arguments; the Caddyfile comes from the reviewed snapshot.

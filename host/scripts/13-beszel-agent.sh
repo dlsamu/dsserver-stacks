@@ -12,6 +12,9 @@
 #   test-recovery  SIGKILL the agent's main process and the proxy's process (simulated crashes);
 #                  waits for systemd / Docker to restart them, then re-runs the allowlist check.
 #                  Only beszel-agent.service and the container beszel-socket-proxy are touched.
+#   log-scan       read-only: every container's full log searched for credential-like text (gate for the
+#                  proxy's logs permission). Prints per-container counts and matching lines with every
+#                  long token replaced by <REDACTED>; exit 1 if anything matched (review it by hand).
 # Not delegated on purpose: removal (do it by hand, see beacon/README.md).
 set -euo pipefail
 HERE=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
@@ -54,8 +57,11 @@ GET /version 200
 GET /info 200
 GET /containers/json 200
 GET /containers/$id/stats?stream=0 200
+GET /containers/$id/logs?stdout=1&tail=1 200
 GET /containers/$id/json 403
-GET /containers/$id/logs 403
+GET /containers/$id/top 403
+GET /containers/$id/archive?path=/ 403
+GET /containers/$id/export 403
 GET /images/json 403
 GET /events 403
 POST /containers/$id/stop 405
@@ -140,11 +146,27 @@ test_recovery() {
     [ "$FAILS" = 0 ] && echo "13 TEST-RECOVERY PASSED" || fail "$FAILS check(s) failed"
 }
 
+log_scan() {
+    local re='token|secret|passw|apikey|api_key|authorization|bearer|BEGIN [A-Z ]*PRIVATE|cf_api|ntfy\.sh/|hc-ping|credential|session=|cookie'
+    local c n m hits=0
+    for c in $(docker ps -a --format '{{.Names}}'); do
+        n=$(docker logs "$c" 2>&1 | wc -l)
+        m=$(docker logs "$c" 2>&1 | grep -c -i -E "$re" || true)
+        echo "$c: $n lines, $m matching"
+        if [ "$m" -gt 0 ]; then
+            hits=$((hits+m))
+            docker logs "$c" 2>&1 | grep -i -E "$re" | sed -E 's/[A-Za-z0-9_+\/=.-]{16,}/<REDACTED>/g' | cut -c1-200 | sort | uniq -c | sort -rn | head -n 10 | sed 's/^/    /' || true
+        fi
+    done
+    [ "$hits" = 0 ] && echo "13 LOG-SCAN CLEAN" || { echo "13 LOG-SCAN: $hits matching line(s) - review above before allowing logs"; exit 1; }
+}
+
 case "${1:-}:$#" in
     preflight:1) preflight ;;
+    log-scan:1) log_scan ;;
     install:1) install_ ;;
     verify:1) verify ;;
     status:1) status ;;
     test-recovery:1) test_recovery ;;
-    *) echo "usage: sudo $0 preflight|install|verify|status|test-recovery" >&2; exit 2 ;;
+    *) echo "usage: sudo $0 preflight|install|verify|status|test-recovery|log-scan" >&2; exit 2 ;;
 esac

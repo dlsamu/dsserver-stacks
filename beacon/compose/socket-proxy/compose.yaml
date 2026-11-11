@@ -1,9 +1,12 @@
 # Filtering Docker API proxy for the Beszel agent (same file on Beacon and dsserver).
 # The agent never touches /var/run/docker.sock. It talks to /run/beszel-docker/docker.sock, which
 # allows ONLY these GET requests (anchored ^...$ by socket-proxy; every other method is denied):
-#   /version  /info  /containers/json  /containers/<id>/stats
-# Denied, among others: container inspect (shows env vars/secrets), logs, archive/export, exec,
-# images, events, every POST/PUT/DELETE. /run/beszel-docker is 0750 owned 64001:beszel (64001 = unused uid reserved for this proxy), so only the
+#   /version  /info  /containers/json  /containers/<id>/stats  /containers/<id>/logs
+# Logs (2026-11-12, approved): the dashboard's container Logs panel (agent asks for the last 200 lines). Logs
+# were scanned for credentials first (beacon: `docker logs`; dsserver: `13-beszel-agent.sh log-scan`); an app
+# that prints secrets to stdout must not run on these hosts. Anyone with dashboard access can read them.
+# Denied, among others: container inspect /containers/<id>/json (env vars/secrets; the Detail panel
+# stays empty on purpose), archive/export, exec, attach, images, events, every POST/PUT/DELETE. /run/beszel-docker is 0750 owned 64001:beszel (64001 = unused uid reserved for this proxy), so only the
 # beszel group (the agent) can reach the socket (the 0666 socket file is only reachable through that directory). No network at all for this container.
 name: beszel-socket-proxy
 services:
@@ -18,7 +21,7 @@ services:
     security_opt: [no-new-privileges:true]
     command:
       - -loglevel=info
-      - -allowGET=(/version|/info|/containers/json|/containers/[0-9a-f]{12,64}/stats)
+      - -allowGET=(/version|/info|/containers/json|/containers/[0-9a-f]{12,64}/(stats|logs))
       - -proxysocketendpoint=/run/beszel-docker/docker.sock
       - -proxysocketendpointfilemode=0666
       - -watchdoginterval=300
