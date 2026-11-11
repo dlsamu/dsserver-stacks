@@ -98,7 +98,8 @@ update_all() {
         IFS=: read -r src dst mode <<<"$pair"
         if cmp -s "$src" "$dst"; then ok "$dst unchanged"
         else
-            diff -u "$dst" "$src" | sed -n '1,2d; /^[-+]/p' | head -n 40 | sed 's/^/  | /'
+            # diff exits 1 when files differ; with set -e/pipefail that must not end the script
+            { diff -u "$dst" "$src" || true; } | sed -n '1,2d; /^[-+]/p' | head -n 40 | sed 's/^/  | /' || true
             install -m "$mode" -o root -g root "$src" "$dst.new" && mv -f "$dst.new" "$dst"
             cmp -s "$src" "$dst" || fail "$dst does not match after install"
             ok "$dst updated"; changed=1
