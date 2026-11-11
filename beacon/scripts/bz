@@ -48,7 +48,7 @@ case $cmd in
   monitors)
     names=$(api GET '/api/collections/systems/records?perPage=500&fields=id,name' | jq -c '[.items[]|{(.id):.name}]|add // {}')
     api GET '/api/collections/network_monitors/records?perPage=500' |
-      jq -r --argjson n "$names" '["SYSTEM","ID","PROTO","TARGET","PORT","EVERY_S","ENABLED","LOSS1H"], (.items[] | [$n[.system], .id, .protocol, .target, (.port//"-"), .interval, .enabled, (.loss1h//"-")]) | @tsv' | column -t ;;
+      jq -r --argjson n "$names" '["SYSTEM","ID","PROTO","TARGET","PORT","DNS_SERVER","EVERY_S","ENABLED","LOSS1H"], (.items[] | [$n[.system], .id, .protocol, .target, (.port//"-"), (if (.server//"") == "" then "-" else .server end), .interval, .enabled, (.loss1h//"-")]) | @tsv' | column -t ;;
   set-alert)
     [ $# = 4 ] || { echo "usage: bz set-alert SYSTEM TYPE VALUE MIN" >&2; exit 2; }
     sid=$(sys_id "$1"); aid=$(alert_id "$sid" "$2")

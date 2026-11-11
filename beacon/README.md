@@ -37,8 +37,51 @@ Raspberry Pi 5 (8 GB), Raspberry Pi OS Lite 64-bit (Debian 13 trixie), 128 GB mi
 |---|---|---|
 | **beacon** | CPU, load, memory, swap, disk usage and I/O, temperatures, network, systemd services, containers (health, CPU, memory) | local agent |
 | **dsserver** | the same, plus its Docker containers (through its own socket proxy) | native agent, installed 2026-11-11 with `host/scripts/13-beszel-agent.sh install` (delegated sudo, see host-config §11). Connects out to 192.168.68.121:8090; dsserver's firewall unchanged |
-| Home network | Deco gateway 192.168.68.1 (ping, 60 s); dsserver 192.168.68.115 (ping, 60 s); internet 1.1.1.1 (ping, 60 s); DNS through the Deco (`deb.debian.org` via 192.168.68.1, 5 min); HTTPS https://deb.debian.org/ (5 min) | Beszel network monitors, run by Beacon's agent |
+| Home network | gateway, two internet ping targets, DNS via the Deco and via 9.9.9.9, two external HTTPS sites, dsserver ping + TCP 443, StockPulse (10 checks, see "Network monitoring") | Beszel network monitors, run by Beacon's agent; outage history by `netwatch` |
 | Disk health (dsserver) | SMART | stays with smartd and the dsserver heartbeat (A2). Beszel's SMART needs disk-group or root access |
+
+## Network monitoring (since 2026-11-11 22:00)
+Ten Beszel network checks run **on Beacon** (independent of dsserver), every 60 s unless noted:
+
+| Role (netwatch) | Check | What a failure alone means |
+|---|---|---|
+| gateway | ping 192.168.68.1 (Deco) | LAN/Wi-Fi/gateway problem, or Beacon's own link |
+| wan_cf, wan_q9 | ping 1.1.1.1 and 9.9.9.9 (two providers) | both: internet (WAN) down; one: path/provider problem only |
+| dns_local | DNS deb.debian.org via the Deco (300 s) | Deco's DNS forwarder (both DNS checks: upstream DNS) |
+| dns_public | DNS deb.debian.org via 9.9.9.9 | public resolver/path to it |
+| https_debian, https_google | HTTPS deb.debian.org (300 s), www.google.com/generate_204 (300 s) | that external site, or TLS/HTTP filtering |
+| dsserver_icmp | ping 192.168.68.115 | dsserver host/link down |
+| dsserver_tcp | TCP 192.168.68.115:443 | dsserver up, Caddy (HTTPS) not accepting |
+| stockpulse | HTTPS stockpulse.rubusdua.net/healthz | StockPulse web down (dsserver HTTPS fine) |
+
+**Alerts:** the existing `NetworkMonitorLoss` rule (beacon, loss > 20 % over the past hour) covers every check: one ntfy
+message per check when it crosses the threshold (≈ 12–13 min of total loss) and one when it recovers (only when the hour
+is back under 20 %: up to ≈ 50 min after the end of a 20-min outage). During a real internet outage the "down" messages
+cannot reach ntfy.sh and are lost; the recoveries arrive afterwards, one per internet-dependent check (up to 6:
+1.1.1.1, 9.9.9.9, both DNS, both HTTPS). Healthchecks.io independently e-mails "down" for both heartbeats.
+New checks were added only where they separate a cause (no duplicates of the same signal).
+
+**Outage history (`netwatch`):** Beszel keeps 1-minute results for 1 hour only (then 10/20/120/480-minute averages,
+up to 30 days). `netwatch/netwatch.py` (timer `netwatch-collect.timer`, :05 and :35, as root, read-only API account,
+localhost only) copies the 1-minute results into `/srv/appdata/netwatch/netwatch.db` (180 days, a few MB per month).
+It probes nothing and sends nothing; if collection fails, the unit fails → SystemdFailed alert (beacon).
+```
+ssh beacon sudo python3 -I /srv/beacon/netwatch/netwatch.py report --days 7     # classified incidents (--all: 1-min blips too)
+ssh beacon sudo python3 -I /srv/beacon/netwatch/netwatch.py trend --days 7      # per day/check: samples, loss %, avg ms
+ssh beacon sudo python3 -I /srv/beacon/netwatch/netwatch.py status
+```
+A minute is classified by the first match: no data (Beacon/hub blind) → LAN/gateway → internet (WAN) → DNS upstream →
+Deco DNS → public DNS → single WAN path → external HTTPS → dsserver down → dsserver HTTPS → StockPulse web.
+**Limits:** everything is seen from Beacon's single wired/Wi-Fi link: a Beacon-side problem looks like "LAN/gateway";
+Wi-Fi quality of other devices, per-device problems and Deco internals are invisible. 5-minute checks give 5-minute
+resolution. If Beacon itself is down there is no data ("no data"; Healthchecks covers that). Install/remove:
+`sudo bash /srv/beacon/netwatch/install.sh [remove]` (after `scripts/deploy.sh`). Tests: `cd netwatch && python3 -m unittest test_netwatch`.
+
+**Deco telemetry (passive check 2026-11-11, no login):** open TCP 53 (DNS), 80→443 (web UI, a 272-byte JS stub page),
+1900 (UPnP), 20001 (Deco app management). No sign of SNMP or syslog export; checking SNMP would need a community
+string (a credential), so it was not tried. Deco is managed through the TP-Link app/cloud; no local metrics API is used.
+Note: port 1900 suggests **UPnP is enabled**, which lets LAN devices create port forwards themselves; consider
+disabling it in the Deco app (Advanced → NAT forwarding → UPnP) to match the "no port forwarding" policy.
 
 ## Alerts (sent to the ntfy topic in `~/ntfy-beacon.txt`, server ntfy.sh)
 Owned by the automation account and managed with `bz` (see "Automation (API)"): e.g. `bz alerts`, `bz set-alert dsserver Disk 85 10`.
@@ -196,7 +239,7 @@ Secret: `/etc/beacon-secrets/cloudflare.env` (root 0600). Data: `/srv/appdata/ca
 
 Note: while the hub is stopped the dashboard is unreachable too (it *is* the hub), and Beszel sends no alerts; Healthchecks covers that gap.
 
-**Tested 2026-11-11 ~22:30, container Logs panel (Beacon):** cause of the empty panels: the agent asks the proxy for
+**Tested 2026-11-11 ~21:55, container Logs panel (Beacon):** cause of the empty panels: the agent asks the proxy for
 `/containers/<id>/logs` (Logs) and `/containers/<id>/json` (Detail), both refused by the allowlist. All Beacon container
 logs scanned first: no credentials (one Let's Encrypt "authorization finalized" status line). Allowlist extended by `logs`
 only; as user `beszel`: version/containers/stats/logs 200, json/top/archive/images/events 403, POST 405. Hub API

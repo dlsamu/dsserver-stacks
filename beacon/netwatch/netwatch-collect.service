@@ -1,0 +1,25 @@
+[Unit]
+Description=netwatch: copy Beszel 1-minute network check results into the outage history
+Documentation=file:///srv/beacon/README.md
+After=docker.service
+
+[Service]
+# exec, not oneshot: the Beszel agent ignores units that never became active, so a failing oneshot would
+# never reach the SystemdFailed alert.
+Type=exec
+ExecStart=/usr/bin/python3 -I /srv/beacon/netwatch/netwatch.py collect
+RuntimeMaxSec=5min
+User=root
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/appdata/netwatch
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+IPAddressDeny=any
+IPAddressAllow=localhost

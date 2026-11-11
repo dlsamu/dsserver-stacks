@@ -1,0 +1,11 @@
+[Unit]
+Description=netwatch collection every 30 minutes (Beszel keeps 1-minute results for 1 hour)
+
+[Timer]
+OnBootSec=10min
+OnCalendar=*:05,35
+AccuracySec=1min
+Persistent=false
+
+[Install]
+WantedBy=timers.target
