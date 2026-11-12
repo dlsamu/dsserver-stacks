@@ -25,6 +25,10 @@
 #   timer-enable us|intl|ath | timer-disable us|intl|ath   ONE weekday screener timer (production schedule);
 #                    report freshness is checked from then on for that screener only (state/timer-<job>-enabled-at)
 #   timers-enable | timers-disable   all three screener timers
+#   push-fail-test | push-fail-clear   live check of the notification-failure path: transient unit
+#                    stockpulse-push-fail-test.service runs the PRODUCTION image with STOCKPULSE_PUSH_REQUIRED=1 but no
+#                    key, --network none, test topic, scratch dir $TEST/pushfail: writes a report, push fails, exit 3,
+#                    unit stays failed (-> Beszel SystemdFailed alert) until push-fail-clear. Sends nothing.
 #   fcm-verify       Firebase key check WITHOUT sending: file root:10010 0640; readable by the app uid; service
 #                    account of project stockpulse-cdbc3; OAuth token issued; FCM messages:send with validate_only
 #                    (validated by Google, delivered to nobody). Prints no key material. No data dirs mounted.
@@ -231,6 +235,30 @@ EOF
       docker compose -f "$STACK/compose.yaml" --profile job run --rm --no-deps job python "$s"
     echo "--- finished $(date +%T)" ;;
 
+  push-fail-test:1)
+    need_image; u=stockpulse-push-fail-test.service; e="$TEST/pushfail"
+    systemctl reset-failed "$u" 2>/dev/null || true
+    rm -rf "$e"; install -d -m 0755 "$TEST"; install -d -m 0755 -o "$UID_" -g "$UID_" "$e"
+    systemd-run --quiet --unit="${u%.service}" --description="StockPulse push-failure test (no key, no network, sends nothing)" \
+      -p Type=exec -p RuntimeMaxSec=5min --wait \
+      docker run --rm --network none --user "$UID_:$UID_" --read-only --cap-drop ALL --security-opt no-new-privileges \
+        -e STOCKPULSE_PUSH_REQUIRED=1 -e STOCKPULSE_FCM_KEY=/nonexistent/key -e STOCKPULSE_FCM_TOPIC=stockpulse-test \
+        -e STOCKPULSE_DATA_DIR=/out -e STOCKPULSE_REPORT_DIR=/out -v "$e:/out" "$STOCKPULSE_IMAGE" python -c '
+import stock_tracker as st, push_notify as pn
+st.write_report("/out/report.html", "<html>push-failure test</html>"); print("report written")
+st.send_push(title="US screener report", body="push-failure test", route="/latest/us")
+pn.exit_on_failure()' || true
+    r=$(systemctl show -p Result --value "$u"); c=$(systemctl show -p ExecMainStatus --value "$u")
+    [ "$r" = exit-code ] && [ "$c" = 3 ] && ok "unit $u failed with exit 3 (Result=$r)" || bad "unit result '$r', exit '$c' (expected exit-code / 3)"
+    [ -s "$e/report.html" ] && ok "report was written before the failure" || bad "report missing"
+    j=$(journalctl -u "$u" -o cat --no-pager -n 30 2>/dev/null)
+    grep -q "NOTIFICATION FAILED" <<<"$j" && grep -q "fix: install the service-account key" <<<"$j" && ok "journal has the actionable summary" || bad "actionable summary not in journal"
+    sed -n '/NOTIFICATION FAILED/,/after fixing/p' <<<"$j"
+    echo "unit stays failed until: 15 push-fail-clear"
+    [ "$FAILS" = 0 ] && echo "15 PUSH-FAIL-TEST PASSED" || fail "$FAILS check(s) failed" ;;
+  push-fail-clear:1)
+    systemctl reset-failed stockpulse-push-fail-test.service 2>/dev/null || true; rm -rf "$TEST/pushfail"
+    systemctl is-failed --quiet stockpulse-push-fail-test.service && fail "still failed" || ok "push-fail test unit cleared" ;;
   fcm-verify:1)
     need_image; k="$SECRETS/firebase-service-account.json"
     [ -s "$k" ] || fail "no Firebase key in $SECRETS"
