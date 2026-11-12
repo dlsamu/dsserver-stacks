@@ -227,7 +227,7 @@ EOF
   run-test:2)
     need_image; s=$(script_for "$2"); [ -s "$TEST/data/history.db" ] || fail "run test-reset first"
     echo "--- TEST run $2 ($s) against $TEST, pushes disabled (no key, topic stockpulse-test), started $(date +%T)"
-    jobrun STOCKPULSE_DATA="$TEST/data" STOCKPULSE_REPORTS="$TEST/reports" STOCKPULSE_FCM_KEY=/nonexistent/key STOCKPULSE_FCM_TOPIC=stockpulse-test \
+    jobrun STOCKPULSE_DATA="$TEST/data" STOCKPULSE_REPORTS="$TEST/reports" STOCKPULSE_FCM_KEY=/nonexistent/key STOCKPULSE_FCM_TOPIC=stockpulse-test STOCKPULSE_PUSH_REQUIRED=0 \
       docker compose -f "$STACK/compose.yaml" --profile job run --rm --no-deps job python "$s"
     echo "--- finished $(date +%T)" ;;
 

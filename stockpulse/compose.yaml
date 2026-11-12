@@ -42,6 +42,8 @@ services:
     environment:
       STOCKPULSE_FCM_KEY: ${STOCKPULSE_FCM_KEY:-/run/secrets/stockpulse/firebase-service-account.json}
       STOCKPULSE_FCM_TOPIC: ${STOCKPULSE_FCM_TOPIC:-stockpulse-reports}
+      # 1 = a failed/skipped notification makes the run exit 3 (unit failed -> alert); report is published first.
+      STOCKPULSE_PUSH_REQUIRED: ${STOCKPULSE_PUSH_REQUIRED:-1}
     volumes:
       - {type: bind, source: "${STOCKPULSE_DATA:-/srv/appdata/stockpulse/data}", target: /data, bind: {create_host_path: false}}
       - {type: bind, source: "${STOCKPULSE_REPORTS:-/srv/appdata/stockpulse/reports}", target: /reports, bind: {create_host_path: false}}
