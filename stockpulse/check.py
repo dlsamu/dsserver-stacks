@@ -9,7 +9,8 @@ Checks
   database   history.db present, SQLite quick_check ok, expected tables, owned by the app uid
   storage    >= 2 GiB and >= 5 % free on the data filesystem; data/report dirs owned by the app uid
   reports    the 5 latest reports exist as regular files
-  freshness  only for screeners whose timer is enabled (state/timers-enabled-at): each latest report must
+  freshness  only for screeners whose timer is enabled (state/timer-<job>-enabled-at, written by `15 timer-enable
+             <job>`; the legacy state/timers-enabled-at counts for all three): each latest report must
              be newer than the most recent weekday slot (08/09/10:00) that is older than the grace period
              and later than the enable time (no false alarm right after enabling)
   backup     if the backup timer is enabled (state/backup-enabled): newest backup younger than 26 h
@@ -75,11 +76,15 @@ def main():
         except OSError as e:
             bad(f"{d}: {e.strerror}")
 
-    try:
-        enabled_at = datetime.fromtimestamp(os.stat(os.path.join(a.state, "timers-enabled-at")).st_mtime)
-    except OSError:
-        enabled_at = None
+    def enabled_since(job):
+        for name in (f"timer-{job}-enabled-at", "timers-enabled-at"):
+            try:
+                return datetime.fromtimestamp(os.stat(os.path.join(a.state, name)).st_mtime)
+            except OSError:
+                pass
+        return None
     for job, files in LATEST.items():
+        enabled_at = enabled_since(job)
         slot = last_slot(now, SLOT_HOUR[job])
         for f in files:
             try:

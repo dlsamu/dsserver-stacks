@@ -56,6 +56,17 @@ reset "2026-11-13 10:05"; touch -d "2026-11-01" "$T/s/timers-enabled-at"; NOW=20
                                                                   check "Monday 09:00: Friday counts"     passed
 NOW=2026-11-11T12:00:00
 
+# Per-screener enable (15 timer-enable <job>): only that screener's reports must be fresh.
+reset "2026-11-10 10:05"; touch -d "2026-11-01" "$T/s/timer-us-enabled-at"; touch -d "2026-11-11 08:20" "$T/r/report.html"; run
+                                                                  check "only us enabled, us fresh: ok"   passed
+has "report_intl_nordic.html present (2026-11-10 10:05); freshness not required yet" && has "report_ath.html present" \
+                                                               && check "intl/ath not checked" true || check "intl/ath not checked" false
+reset "2026-11-10 10:05"; touch -d "2026-11-01" "$T/s/timer-us-enabled-at"; run
+                                                                  check "only us enabled, us stale: FAIL" failed "report.html from 2026-11-10 10:05, expected run Wed 2026-11-11 08:00 -> STALE"
+[ "$(grep -c STALE <<<"$OUT")" = 1 ]; check "exactly one stale report (us)" [ $? = 0 ]
+reset "2026-11-10 10:05"; touch -d "2026-11-11 08:30" "$T/s/timer-us-enabled-at"; run
+                                                                  check "us enabled after its slot: ok"   passed
+
 # Backup age (only once backup-enable has run).
 reset "2026-11-11 10:05"; touch "$T/s/backup-enabled"; run;       check "backup enabled, none yet: FAIL"  failed "backup: none yet"
 reset "2026-11-11 10:05"; touch "$T/s/backup-enabled"; touch -d "2026-11-11 03:15" "$T/d/backups/history-20261111-031500.db"; run

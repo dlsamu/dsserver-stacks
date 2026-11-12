@@ -22,7 +22,9 @@
 #   test-recovery    SIGKILL the web process; Docker must restart it and serve the same report
 #   units-install    install the systemd units (nothing enabled)
 #   backup-enable    enable the daily backup timer
-#   timers-enable | timers-disable   the three weekday screener timers (production schedule)
+#   timer-enable us|intl|ath | timer-disable us|intl|ath   ONE weekday screener timer (production schedule);
+#                    report freshness is checked from then on for that screener only (state/timer-<job>-enabled-at)
+#   timers-enable | timers-disable   all three screener timers
 #   down             stop and remove the web container (data untouched)
 # Isolated testing of UNRELEASED code (branch `stockpulse-test` in ~/dev/stock-tracker; no 09 install needed):
 #   test-build       image stockpulse-test:<commit> (+ :current) from that branch, same Dockerfile; never
@@ -201,6 +203,9 @@ EOF
 
   status:1)
     docker ps -a --filter name=stockpulse --format '{{.Names}} {{.Image}} {{.Status}}'
+    for i in "$STOCKPULSE_IMAGE" "$(docker inspect -f '{{.Image}}' stockpulse-web 2>/dev/null)"; do
+      [ -n "$i" ] && echo "image ${i:0:26}: id $(docker image inspect -f '{{.Id}}' "$i" 2>/dev/null | cut -c1-19), revision $(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$i" 2>/dev/null)"
+    done
     systemctl list-timers 'stockpulse-*' --all --no-pager 2>/dev/null | head -n 7 || true
     for j in us intl ath; do echo "job $j: $(systemctl show -p Result,ExecMainExitTimestamp --value "stockpulse-job@$j.service" 2>/dev/null | tr '\n' ' ')"; done
     du -sh "$APP/data" "$APP/reports" 2>/dev/null || true
@@ -280,12 +285,23 @@ print("backup", os.path.basename(dst), "integrity ok,", n, "runs;", len(old), "o
   backup-enable:1)
     systemctl enable --now stockpulse-backup.timer >/dev/null 2>&1; install -d -m 0755 "$STATE"; touch "$STATE/backup-enabled"
     systemctl is-enabled stockpulse-backup.timer ;;
+  timer-enable:2)
+    s=$(script_for "$2"); need_image
+    systemctl enable "stockpulse-$2.timer" >/dev/null 2>&1 && systemctl start "stockpulse-$2.timer" || fail "could not enable stockpulse-$2.timer"
+    install -d -m 0755 "$STATE"; touch "$STATE/timer-$2-enabled-at"   # report freshness checked from now on (this job only)
+    ok "stockpulse-$2.timer enabled ($s); next: $(systemctl show -p NextElapseUSecRealtime --value "stockpulse-$2.timer")"
+    for t in us intl ath; do echo "timer $t: $(systemctl is-enabled stockpulse-$t.timer 2>/dev/null || true) / $(systemctl is-active stockpulse-$t.timer 2>/dev/null || true)"; done ;;
+  timer-disable:2)
+    script_for "$2" >/dev/null
+    systemctl disable --now "stockpulse-$2.timer" >/dev/null 2>&1 || true
+    rm -f "$STATE/timer-$2-enabled-at"; [ -e "$STATE/timers-enabled-at" ] && echo "note: legacy timers-enabled-at still set (use timers-disable)"
+    ok "stockpulse-$2.timer disabled (freshness no longer checked for $2)" ;;
   timers-enable:1)
-    for t in us intl ath; do systemctl enable --now "stockpulse-$t.timer" >/dev/null 2>&1; done
-    install -d -m 0755 "$STATE"; touch "$STATE/timers-enabled-at"   # report freshness is checked from now on
+    install -d -m 0755 "$STATE"
+    for t in us intl ath; do systemctl enable --now "stockpulse-$t.timer" >/dev/null 2>&1; touch "$STATE/timer-$t-enabled-at"; done
     systemctl list-timers 'stockpulse-*' --no-pager | head -n 7 ;;
   timers-disable:1)
-    for t in us intl ath; do systemctl disable --now "stockpulse-$t.timer" >/dev/null 2>&1 || true; done
+    for t in us intl ath; do systemctl disable --now "stockpulse-$t.timer" >/dev/null 2>&1 || true; rm -f "$STATE/timer-$t-enabled-at"; done
     rm -f "$STATE/timers-enabled-at"; ok "screener timers disabled (freshness no longer checked)" ;;
   test-build:1)
     c=$(runuser -u daniel -- git -C "$REPO" rev-parse --verify --quiet "$TESTREF^{commit}") || fail "branch stockpulse-test not found in $REPO"

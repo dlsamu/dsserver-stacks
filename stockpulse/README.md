@@ -27,7 +27,7 @@ LAN browser / app --https:443--> Caddy (proxy/) --proxy network--> stockpulse-we
 | Web down / not answering through HTTPS | Beacon network check `https://stockpulse.rubusdua.net/healthz` (http, 60 s); the 15-min check (web container not running/healthy) | ntfy: "Network monitor … on beacon" (loss > 20 %/h, ≈ 12 min) and "Failed services on dsserver: stockpulse-check.service" |
 | Web container unhealthy | Docker health check `/healthz`; Beszel dsserver ContainerHealth (5 min) | ntfy: "Unhealthy container stockpulse-web on dsserver" |
 | Database missing/corrupt/tables, storage < 2 GiB or 5 %, wrong ownership, report missing or a symlink | `stockpulse-check.timer` (every 15 min) runs `15 check` (`check.py`) → `stockpulse-check.service` **failed** | Beszel dsserver SystemdFailed (5 min) → ntfy naming `stockpulse-check.service`; recovery message when the next run passes |
-| Stale reports (only after `timers-enable`) | check: each latest report newer than the last weekday 08/09/10:00 slot + 90 min | as above |
+| Stale reports (only for screeners enabled with `timer-enable <job>`) | check: that screener's latest report(s) newer than its last weekday slot (us 08:00, intl 09:00, ath 10:00) + 90 min | as above |
 | Backup older than 26 h / none (after `backup-enable`) | check | as above |
 | Screener run failed (e.g. no tickers, crash) | `stockpulse-job@<x>.service` failed | Beszel SystemdFailed → ntfy naming the job unit, until the next successful run |
 
@@ -44,7 +44,7 @@ Alert test (≈ 10–15 min): `15 check-test-fail` → `15 check-now` → ntfy a
 ## Commands (`S=/usr/local/lib/dsserver-admin/host/scripts/15-stockpulse.sh; sudo -n $S <mode>`)
 `preflight` · `build` · `import` (one-time) · `up` · `verify` · `status` · `test-reset` · `run-test us|intl|ath` ·
 `push-test` · `job us|intl|ath` · `backup` · `check` · `check-now` · `check-test-fail|check-test-clear` · `check-enable` · `test-recovery` ·
-`units-install` · `backup-enable` · `timers-enable|timers-disable` · `down`.
+`units-install` · `backup-enable` · `timer-enable|timer-disable us|intl|ath` (one screener) · `timers-enable|timers-disable` (all three) · `down`.
 After changing anything under `stockpulse/` or the Caddyfile: commit, `sudo bash host/scripts/09-delegated-sudo.sh install <commit>`.
 
 ## Testing unreleased code (no 09 install per change)
@@ -58,7 +58,7 @@ commit's own `requirements.lock`, so only test commits you wrote yourself.
 ## Deploy from scratch / recovery
 1. `~/dev/stock-tracker` contains the `SOURCE` commit (push branch `dsserver` to GitHub so it survives a disk loss).
 2. `09 install <commit>` → `15 build` → `15 import` (or restore `data/` and `reports/` from backup instead) → `15 up`
-   → `14 dns-ensure` + `14 up` (Caddy) → `15 verify` → `15 units-install` → `15 backup-enable` → `15 check-enable` → (approved) `15 timers-enable`.
+   → `14 dns-ensure` + `14 up` (Caddy) → `15 verify` → `15 units-install` → `15 backup-enable` → `15 check-enable` → (approved per screener) `15 timer-enable us` (2026-11-12; intl/ath stay disabled until they have the US guards).
 3. Restore the DB from a backup: `15 down`, copy `data/backups/history-<time>.db` to `data/history.db` (owner 10010, 0600), `15 up`.
 
 ## Updating the code
