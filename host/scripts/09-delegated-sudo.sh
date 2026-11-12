@@ -63,6 +63,10 @@ FILES=(
     stockpulse/systemd/stockpulse-check.service
     stockpulse/systemd/stockpulse-check.timer
     stockpulse/check.py
+    stockpulse/external_check.py
+    stockpulse/systemd/stockpulse-external.service
+    stockpulse/systemd/stockpulse-external.timer
+    stockpulse/systemd/stockpulse-external-alarm.service
     host/scripts/16-tunnel.sh
     tunnel/compose.yaml
     tunnel/routes.toml
@@ -160,6 +164,13 @@ COMMANDS=(
     "host/scripts/15-stockpulse.sh timers-enable"
     "host/scripts/15-stockpulse.sh timers-disable"
     "host/scripts/15-stockpulse.sh down"
+    "host/scripts/15-stockpulse.sh external-enable"
+    "host/scripts/15-stockpulse.sh external-disable"
+    "host/scripts/15-stockpulse.sh external-check"
+    "host/scripts/15-stockpulse.sh external-alarm"
+    "host/scripts/15-stockpulse.sh external-test-fail"
+    "host/scripts/15-stockpulse.sh external-test-clear"
+    "host/scripts/15-stockpulse.sh external-status"
     # Cloudflare Tunnel + Access for StockPulse (tunnel/, approved 2026-11-12). teardown works only after dns-rollback + down.
     "host/scripts/16-tunnel.sh preflight"
     "host/scripts/16-tunnel.sh token-install"

@@ -1,0 +1,10 @@
+[Unit]
+Description=StockPulse external access probe every minute
+
+[Timer]
+OnBootSec=3min
+OnCalendar=*-*-* *:*:20
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

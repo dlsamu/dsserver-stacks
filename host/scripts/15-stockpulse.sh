@@ -32,6 +32,14 @@
 #   fcm-verify       Firebase key check WITHOUT sending: file root:10010 0640; readable by the app uid; service
 #                    account of project stockpulse-cdbc3; OAuth token issued; FCM messages:send with validate_only
 #                    (validated by Google, delivered to nobody). Prints no key material. No data dirs mounted.
+#   external-enable | external-disable   install + enable (or stop) the external access probe
+#                    (stockpulse-external.timer, every minute; stockpulse/external_check.py): public DNS ->
+#                    Cloudflare -> Access -> tunnel -> app. 3 failed probes in a row -> stockpulse-external-alarm.service
+#                    fails once and stays failed (SystemdFailed -> ntfy); 2 good probes in a row clear it.
+#   external-check   one probe + hysteresis (run by the timer)   external-alarm   the alarm unit's body
+#   external-test-fail | external-test-clear   probes count as failed / normal again (live alert-chain test
+#                    without touching StockPulse or the tunnel)
+#   external-status  timer, alarm unit and the last probes
 #   down             stop and remove the web container (data untouched)
 # Isolated testing of UNRELEASED code (branch `stockpulse-test` in ~/dev/stock-tracker; no 09 install needed):
 #   test-build       image stockpulse-test:<commit> (+ :current) from that branch, same Dockerfile; never
@@ -52,7 +60,7 @@ APP=/srv/appdata/stockpulse
 TEST=/srv/appdata/stockpulse-test
 SECRETS=/etc/stockpulse-secrets
 NAME=stockpulse.rubusdua.net
-UNITS="stockpulse-job@.service stockpulse-us.timer stockpulse-intl.timer stockpulse-ath.timer stockpulse-backup.service stockpulse-backup.timer stockpulse-check.service stockpulse-check.timer"
+UNITS="stockpulse-job@.service stockpulse-us.timer stockpulse-intl.timer stockpulse-ath.timer stockpulse-backup.service stockpulse-backup.timer stockpulse-check.service stockpulse-check.timer stockpulse-external.service stockpulse-external.timer stockpulse-external-alarm.service"
 STATE=/var/lib/stockpulse
 ARCHIVE_RE='report(_ath|_intl_(pacific|european|nordic))?_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}(_TEST)?\.html'
 UID_=10010
@@ -342,6 +350,36 @@ print("backup", os.path.basename(dst), "integrity ok,", n, "runs;", len(old), "o
     [ "$(docker inspect -f '{{.RestartCount}} {{.State.Health.Status}}' $w)" = "$((c0+1)) healthy" ] && ok "web restarted by Docker and healthy at $(date +%T)" || bad "web not back"
     [ "$(get /latest/us)" = "$h0" ] && ok "same report served after the crash (sha256 $h0)" || bad "report differs after restart"
     [ "$FAILS" = 0 ] && echo "15 TEST-RECOVERY PASSED" || fail "$FAILS check(s) failed" ;;
+  external-check:1)
+    install -d -m 0755 "$STATE"; rc=0
+    python3 -I -B "$STACK/external_check.py" --state "$STATE" || rc=$?
+    alarm=$(systemctl show -p ActiveState --value stockpulse-external-alarm.service)
+    case $rc in
+      10) systemctl start --no-block stockpulse-external-alarm.service; echo "alarm unit started (fails -> alert)" ;;
+      11) systemctl reset-failed stockpulse-external-alarm.service 2>/dev/null || true; echo "alarm unit cleared (-> recovery)" ;;
+      0)  # reconcile after a reboot or a manual reset: unit state follows the state file, never flaps
+          if [ -e "$STATE/external-alarm" ] && [ "$alarm" = inactive ]; then systemctl start --no-block stockpulse-external-alarm.service; echo "alarm re-asserted"
+          elif [ ! -e "$STATE/external-alarm" ] && [ "$alarm" = failed ]; then systemctl reset-failed stockpulse-external-alarm.service; echo "stale alarm cleared"; fi ;;
+      *)  echo "FAIL  external check itself failed (rc $rc)"; exit 1 ;;
+    esac ;;
+  external-alarm:1) python3 -I -B "$STACK/external_check.py" --state "$STATE" --summary; exit 1 ;;
+  external-enable:1)
+    for u in stockpulse-external.service stockpulse-external.timer stockpulse-external-alarm.service; do
+      install -m 0644 "$STACK/systemd/$u" "/etc/systemd/system/$u"; done
+    systemctl daemon-reload; systemctl enable --now stockpulse-external.timer >/dev/null 2>&1
+    echo "stockpulse-external.timer: $(systemctl is-enabled stockpulse-external.timer), next $(systemctl show -p NextElapseUSecRealtime --value stockpulse-external.timer)" ;;
+  external-disable:1)
+    systemctl disable --now stockpulse-external.timer >/dev/null 2>&1 || true
+    rm -f "$STATE/external-alarm" "$STATE/external-fail-test"; systemctl reset-failed stockpulse-external-alarm.service 2>/dev/null || true
+    ok "external probe stopped, alarm cleared" ;;
+  external-test-fail:1)  install -d -m 0755 "$STATE"; touch "$STATE/external-fail-test"; ok "external probes now count as FAILED (alert after 3 probes)" ;;
+  external-test-clear:1) rm -f "$STATE/external-fail-test"; ok "external probes normal again (recovery after 2 good probes)" ;;
+  external-status:1)
+    echo "timer: $(systemctl is-enabled stockpulse-external.timer 2>/dev/null) / $(systemctl is-active stockpulse-external.timer 2>/dev/null)"
+    echo "alarm unit: $(systemctl show -p ActiveState,Result --value stockpulse-external-alarm.service | tr '\n' ' ')$([ -e "$STATE/external-alarm" ] && echo '(ALARM state)')"
+    [ -e "$STATE/external-fail-test" ] && echo "TEST FLAG SET (probes count as failed)"
+    python3 -I -c 'import json,sys,time
+for p in json.load(open(sys.argv[1]))[-5:]: print(time.strftime("  %H:%M:%S", time.localtime(p["t"])), "ok  " if p["ok"] else "FAIL", p["reason"])' "$STATE/external-history.json" 2>/dev/null || echo "  no probes yet" ;;
   check-test-fail:1)  install -d -m 0755 "$STATE"; touch "$STATE/fail-test"; ok "deliberate check failure ON (next check run fails)" ;;
   check-test-clear:1) rm -f "$STATE/fail-test"; ok "deliberate check failure OFF" ;;
   check-enable:1)
@@ -406,5 +444,5 @@ print("backup", os.path.basename(dst), "integrity ok,", n, "runs;", len(old), "o
     docker network rm stockpulse_test >/dev/null 2>&1 || true
     ok "test images and network removed" ;;
   down:1) dc down 2>&1 | tail -n 2 ;;
-  *) echo "usage: sudo $0 preflight|build|import|up|verify|status|test-reset|run-test us|intl|ath|push-test|job us|intl|ath|backup|test-recovery|check|check-now|check-test-fail|check-test-clear|check-enable|units-install|backup-enable|timers-enable|timers-disable|down|test-build|test-run us|intl|ath|test-clean" >&2; exit 2 ;;
+  *) echo "usage: sudo $0 preflight|build|import|up|verify|status|test-reset|run-test us|intl|ath|push-test|job us|intl|ath|backup|test-recovery|check|check-now|check-test-fail|check-test-clear|check-enable|units-install|backup-enable|timers-enable|timers-disable|external-enable|external-disable|external-check|external-alarm|external-test-fail|external-test-clear|external-status|down|test-build|test-run us|intl|ath|test-clean" >&2; exit 2 ;;
 esac

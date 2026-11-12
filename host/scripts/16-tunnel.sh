@@ -52,6 +52,21 @@ stage() {  # $1 staged file, $2 destination, $3 validation regex for every line
     ok "installed $d (root 0600)"
 }
 tunnel_id() { "${CF[@]}" tunnel-id; }
+# The setup token is temporary (revoked after setup). Read-only status works without it; changes need it.
+have_token() { [ -s "$TOKEN" ]; }
+need_token() { have_token || fail "this step changes Cloudflare and needs a temporary setup token (revoked after setup, by design):
+  create one as in docs/external-access.md, put it in ~/.cloudflare-token-tunnel-setup, run token-install; or use the dashboard"; }
+conn_status() {  # 0 = connector has an active connection to Cloudflare
+    if have_token; then "${CF[@]}" tunnel-status; return; fi
+    local h n
+    h=$(docker inspect -f '{{.State.Health.Status}}' "$CT" 2>/dev/null || echo absent)
+    n=$(docker logs "$CT" 2>&1 | grep -c 'Registered tunnel connection' || true)
+    if [ "$h" = healthy ]; then
+      echo "ok    connector healthy ('tunnel ready': connected to Cloudflare), $n connection registration(s) since start"
+    else echo "FAIL  connector $h"; return 1; fi
+    echo "      (Cloudflare API not queried: no setup token, by design)"
+}
+dns_show() { have_token && "${CF[@]}" dns-show || echo "$HOST (public DNS 1.1.1.1): $(dig +short "$HOST" @1.1.1.1 | tr '\n' ' ')"; }
 cf_ips() { dig +short "$HOST" @1.1.1.1 | grep -E '^[0-9.]+$' | head -n1; }
 
 case "${1:-}:$#" in
@@ -77,14 +92,15 @@ case "${1:-}:$#" in
   emails-install:1)
     stage /home/daniel/.stockpulse-access-emails "$EMAILS" '^[^@[:space:]]+@[^@[:space:]]+\.[A-Za-z]{2,}$'
     shred -u /home/daniel/.stockpulse-access-emails && ok "staged file shredded" ;;
-  check:1) "${CF[@]}" check ;;
+  check:1) need_token; "${CF[@]}" check ;;
   token-remove:1)
     [ -e "$TOKEN" ] && shred -u "$TOKEN" && ok "setup token file shredded: now revoke the token in the Cloudflare dashboard" \
       || ok "no setup token file" ;;
 
-  access-setup:1) "${CF[@]}" access-setup || fail "Access setup" ;;
+  access-setup:1) need_token; "${CF[@]}" access-setup || fail "Access setup" ;;
 
   tunnel-create:1)
+    need_token
     install -d -m 0750 -o root -g "$UID_" "$CFD"
     [ -e "$CFD/credentials.json" ] && fail "$CFD/credentials.json exists already (nothing changed)"
     "${CF[@]}" tunnel-create "$CFD/credentials.json" || fail "tunnel creation"
@@ -92,7 +108,8 @@ case "${1:-}:$#" in
     ok "$CFD/credentials.json root:$UID_ 0640 (can run this one tunnel only)" ;;
 
   config:1)
-    id=$(tunnel_id); [ -n "$id" ] || fail "no tunnel (tunnel-create)"
+    if have_token; then id=$(tunnel_id); else id=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["TunnelID"])' "$CFD/credentials.json"); fi
+    [ -n "$id" ] || fail "no tunnel (tunnel-create)"
     [ -s "$CFD/credentials.json" ] || fail "no credentials file"
     python3 -I "$T/render.py" --tunnel-id "$id" > "$CFD/config.yml.new" || fail "render"
     chown root:"$UID_" "$CFD/config.yml.new"; chmod 0640 "$CFD/config.yml.new"; mv "$CFD/config.yml.new" "$CFD/config.yml"
@@ -116,13 +133,14 @@ case "${1:-}:$#" in
     done
     [ "$h" = healthy ] && ok "connector healthy" || fail "connector not healthy ($h): docker logs $CT"
     docker logs "$CT" 2>&1 | grep -iE 'registered tunnel connection|error|failed' | tail -n 6 | sed 's/^/      /'
-    sleep 3; "${CF[@]}" tunnel-status || fail "Cloudflare does not see the connector" ;;
+    sleep 3; conn_status || fail "connector not connected to Cloudflare" ;;
 
   dns-switch:1)
+    need_token
     docker inspect -f '{{.State.Health.Status}}' "$CT" 2>/dev/null | grep -qx healthy || fail "connector not healthy"
     "${CF[@]}" tunnel-status >/dev/null || fail "tunnel not connected"
     "${CF[@]}" dns-switch || fail "DNS switch" ;;
-  dns-rollback:1) "${CF[@]}" dns-rollback || fail "DNS rollback" ;;
+  dns-rollback:1) need_token; "${CF[@]}" dns-rollback || fail "DNS rollback" ;;
 
   verify:1)
     ip=$(cf_ips); [ -n "$ip" ] || fail "no public A answer for $HOST from 1.1.1.1"
@@ -141,15 +159,16 @@ case "${1:-}:$#" in
       a=$(dig +short "$n.rubusdua.net" @1.1.1.1 | tr '\n' ' '); [[ $a == 192.168.68.* ]] && ok "$n.rubusdua.net still LAN-only A: $a" || bad "$n.rubusdua.net: $a"
     done
     docker inspect -f '{{.State.Health.Status}}' "$CT" | grep -qx healthy && ok "connector healthy" || bad "connector health"
-    "${CF[@]}" tunnel-status || FAILS=$((FAILS+1))
+    conn_status || FAILS=$((FAILS+1))
     [ "$FAILS" = 0 ] && echo "16 VERIFY PASSED" || fail "$FAILS check(s) failed" ;;
 
   status:1)
     docker ps -a --filter "name=^$CT\$" --format '{{.Names}} {{.Status}} {{.Image}}' | cut -c1-120
-    "${CF[@]}" tunnel-status || true; "${CF[@]}" dns-show || true
+    conn_status || true; dns_show || true
     docker logs --tail 5 "$CT" 2>&1 | sed 's/^/      /' || true ;;
   down:1) "${COMPOSE[@]}" down && ok "connector stopped and removed" ;;
   teardown:1)
+    need_token
     docker ps --format '{{.Names}}' | grep -qx "$CT" && fail "connector still running (down first)"
     "${CF[@]}" teardown || fail "teardown"
     rm -f "$CFD/credentials.json" "$CFD/config.yml" && ok "local tunnel credentials removed" ;;

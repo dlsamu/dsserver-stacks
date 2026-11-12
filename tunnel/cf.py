@@ -33,6 +33,8 @@ class CfError(Exception):
 
 
 def token() -> str:
+    if not os.path.exists(TOKEN_FILE):
+        raise CfError(f"no setup token ({TOKEN_FILE}): it is temporary and removed after setup, by design")
     with open(TOKEN_FILE) as f:
         for line in f:
             if line.startswith("CF_API_TOKEN="):

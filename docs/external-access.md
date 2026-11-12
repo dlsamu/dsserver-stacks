@@ -30,8 +30,20 @@
   Drill: connector stopped 16:58, agent restarted 17:11:45, alert 17:15:23.
 - **Beszel's agent keeps its HTTPS connection open between checks and does not re-resolve DNS.** After the switch it
   kept checking the old LAN path (Caddy, certificate issuer/expiry gave it away) and stayed green while the tunnel was
-  down. **After every `dns-switch`/`dns-rollback`: `ssh beacon sudo systemctl restart beszel-agent`.**
+  down. **After every `dns-switch`/`dns-rollback`: `ssh beacon sudo systemctl restart beszel-agent`** (the dsserver external check is not affected: it resolves fresh every minute).
 - Tunnel container: `ContainerHealth` (dsserver, 5 min) via Beszel; Cloudflare reports connections in `16 status`.
+
+### External check on dsserver (2026-11-12, primary alert for the public path)
+- `stockpulse-external.timer` (every minute) -> `15 external-check` -> `stockpulse/external_check.py`: resolves the name
+  fresh via 1.1.1.1/9.9.9.9 (never the Deco, never a kept-alive connection), then requires `/healthz` 200 `ok` from
+  `server: cloudflare` AND `/latest/us` without login -> redirect to `*.cloudflareaccess.com` (alerts if Access
+  protection disappears, too). A LAN answer in public DNS counts as failed.
+- Hysteresis: 3 failed probes in a row -> `stockpulse-external-alarm.service` started once, fails and stays failed ->
+  SystemdFailed (dsserver) -> ntfy. 2 good probes in a row -> `reset-failed` -> recovery. One alert + one recovery per
+  incident; blips (1-2 failed minutes) and flapping during an outage do not alert or re-alert.
+- Planned rollback (`16 dns-rollback`): run `15 external-disable` first (otherwise the LAN answer alerts, correctly).
+- Live alert-chain test without touching StockPulse: `15 external-test-fail` ... `15 external-test-clear`.
+- Beacon's own Beszel check and thresholds are unchanged (independent second view, slower: 1 h loss > 20 %).
 
 ### What is public, and how it is protected
 - Without a login: only Cloudflare's Access login page (served by Cloudflare) and `/healthz` (returns `ok`).

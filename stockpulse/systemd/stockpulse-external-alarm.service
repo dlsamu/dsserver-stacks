@@ -1,0 +1,10 @@
+[Unit]
+Description=StockPulse EXTERNAL ACCESS FAILED (https://stockpulse.rubusdua.net unreachable from the internet)
+Documentation=file:///srv/stacks/docs/external-access.md
+
+[Service]
+# Started (once) by the probe after 3 failed probes in a row; fails and STAYS failed -> Beszel SystemdFailed
+# (dsserver) -> ntfy: one alert per incident. The probe clears it (reset-failed) after 2 good probes in a row.
+# exec, not oneshot: a failed oneshot has no ActiveEnterTimestamp and the Beszel agent would skip it.
+Type=exec
+ExecStart=/usr/local/lib/dsserver-admin/host/scripts/15-stockpulse.sh external-alarm

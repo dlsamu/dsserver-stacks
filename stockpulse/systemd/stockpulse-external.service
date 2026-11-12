@@ -1,0 +1,13 @@
+[Unit]
+Description=StockPulse external access probe (public DNS -> Cloudflare -> Access -> tunnel -> app)
+Documentation=file:///srv/stacks/docs/external-access.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# The probe itself always exits 0 (a failed probe is recorded, not a failed unit): alerting is done by
+# stockpulse-external-alarm.service with hysteresis, so this every-minute unit never flaps the alert.
+# A non-zero exit here means the check itself is broken, which then also alerts (SystemdFailed).
+Type=exec
+RuntimeMaxSec=55s
+ExecStart=/usr/local/lib/dsserver-admin/host/scripts/15-stockpulse.sh external-check
