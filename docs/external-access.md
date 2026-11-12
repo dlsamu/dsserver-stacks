@@ -24,6 +24,15 @@
 2. `16-tunnel.sh down`: connector stopped (with DNS still on the tunnel, the name returns a Cloudflare error page).
 3. Optional `16-tunnel.sh teardown`: deletes the Access apps/policies and the tunnel at Cloudflare and the local credentials.
 
+### Monitoring notes (from the 2026-11-12 drill)
+- Beacon's Beszel check `https://stockpulse.rubusdua.net/healthz` (1 min) is the external end-to-end check; a tunnel
+  outage returns Cloudflare 530, which Beszel counts as a failure -> `NetworkMonitorLoss` (Beacon) -> ntfy.
+  Drill: connector stopped 16:58, agent restarted 17:11:45, alert 17:15:23.
+- **Beszel's agent keeps its HTTPS connection open between checks and does not re-resolve DNS.** After the switch it
+  kept checking the old LAN path (Caddy, certificate issuer/expiry gave it away) and stayed green while the tunnel was
+  down. **After every `dns-switch`/`dns-rollback`: `ssh beacon sudo systemctl restart beszel-agent`.**
+- Tunnel container: `ContainerHealth` (dsserver, 5 min) via Beszel; Cloudflare reports connections in `16 status`.
+
 ### What is public, and how it is protected
 - Without a login: only Cloudflare's Access login page (served by Cloudflare) and `/healthz` (returns `ok`).
   Everything else (reports, archive, any other path) is answered by Cloudflare with a redirect to the login; the

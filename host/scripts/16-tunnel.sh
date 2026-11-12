@@ -57,7 +57,8 @@ cf_ips() { dig +short "$HOST" @1.1.1.1 | grep -E '^[0-9.]+$' | head -n1; }
 case "${1:-}:$#" in
   preflight:1)
     python3 -I "$T/render.py" --check && ok "routes.toml valid" || bad "routes.toml"
-    ( cd "$T" && python3 -I -m unittest -q test_render 2>&1 | tail -n1 )
+    python3 -I -B -m unittest discover -q -s "$T" -p test_render.py 2>&1 | tail -n1 | grep -qx OK \
+      && ok "render tests passed" || bad "render tests (cd tunnel && python3 -m unittest test_render)"
     "${COMPOSE[@]}" config -q && ok "compose file valid" || bad "compose file"
     docker pull -q "$(image)" >/dev/null && ok "image $(image | cut -c1-60)… pulled (digest pinned)" || bad "image pull"
     docker run --rm --network none "$(image)" --version | sed 's/^/      /'
@@ -128,14 +129,14 @@ case "${1:-}:$#" in
     [[ $ip == 192.168.* ]] && fail "$HOST still resolves to the LAN address $ip publicly (dns-switch?)"
     ok "public DNS (1.1.1.1): $HOST -> $ip (Cloudflare edge)"
     X=(curl -s -m 20 --resolve "$HOST:443:$ip")
-    r=$("${X[@]}" -w ' %{http_code}' "https://$HOST/healthz"); [ "$r" = "ok 200" ] && ok "internet /healthz: 200 ok (Access bypass, tunnel, Caddy, app)" || bad "internet /healthz: $r"
+    r=$("${X[@]}" -w ' %{http_code}' "https://$HOST/healthz" | tr -d '\n'); [ "$r" = "ok 200" ] && ok "internet /healthz: 200 ok (Access bypass, tunnel, Caddy, app)" || bad "internet /healthz: $r"
     for p in /latest/us /archive/ /history.db /; do
       read -r code loc < <("${X[@]}" -o /dev/null -w '%{http_code} %{redirect_url}\n' "https://$HOST$p")
       [[ $code =~ ^30[0-9]$ && $loc == https://*.cloudflareaccess.com/* ]] && ok "internet $p without login: $code -> Access login" \
         || bad "internet $p without login: $code $loc (expected redirect to the Access login)"
     done
     srv=$("${X[@]}" -o /dev/null -D - "https://$HOST/healthz" | tr -d '\r' | sed -n 's/^server: //Ip'); [ "$srv" = cloudflare ] && ok "served via Cloudflare" || bad "server header: $srv"
-    r=$(curl -s -m 10 --resolve "$HOST:443:192.168.68.115" -w ' %{http_code}' "https://$HOST/healthz"); [ "$r" = "ok 200" ] && ok "LAN direct path (Caddy) unchanged: $r" || bad "LAN direct: $r"
+    r=$(curl -s -m 10 --resolve "$HOST:443:192.168.68.115" -w ' %{http_code}' "https://$HOST/healthz" | tr -d '\n'); [ "$r" = "ok 200" ] && ok "LAN direct path (Caddy) unchanged: $r" || bad "LAN direct: $r"
     for n in beacon dsserver; do
       a=$(dig +short "$n.rubusdua.net" @1.1.1.1 | tr '\n' ' '); [[ $a == 192.168.68.* ]] && ok "$n.rubusdua.net still LAN-only A: $a" || bad "$n.rubusdua.net: $a"
     done

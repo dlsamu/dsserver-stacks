@@ -22,7 +22,8 @@ Classification of a failing minute (first match wins; every failing check is lis
   external HTTPS     pings and DNS ok, an external HTTPS check fails (that site, or TLS/HTTP filtering)
   dsserver down      dsserver does not answer ping (host, its network link or LAN)
   dsserver HTTPS     dsserver pings, but TCP 443 (Caddy) refuses/times out
-  StockPulse web     dsserver HTTPS reachable, StockPulse /healthz fails
+  StockPulse web     dsserver HTTPS reachable, StockPulse /healthz fails (since 2026-11-12 checked over the
+                    internet: Cloudflare -> tunnel -> Caddy -> app; tunnel down shows up here)
 Stdlib only. The automation account's password is read from /root/beszel-automation/credentials and never printed.
 """
 import argparse, json, os, sqlite3, sys, time, urllib.error, urllib.parse, urllib.request
