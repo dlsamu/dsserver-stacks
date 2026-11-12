@@ -10,7 +10,7 @@
 #   status           containers, last runs, timers, data sizes
 #   test-reset       fresh test copy of the data in /srv/appdata/stockpulse-test (history.db via the backup API)
 #   run-test us|intl|ath   screener run against the TEST copy; pushes impossible (no key, test topic)
-#   push-test        one push to topic "stockpulse-test" (no device subscribes); needs the Firebase key
+#   push-test        one push to topic "stockpulse-test" (only phones with app menu "Test notifications" on); needs the Firebase key
 #   job us|intl|ath  PRODUCTION run (real data; pushes if the key exists). Used by the timers.
 #   backup           history.db -> data/backups/history-<time>.db (backup API, integrity check, keep 14)
 #   check            application check (stockpulse/check.py + web container health); exit 1 = problem.
@@ -300,7 +300,7 @@ sys.exit(1 if bad else 0)' || bad "Firebase verification failed"
   push-test:1)
     need_image; [ -s "$SECRETS/firebase-service-account.json" ] || fail "no Firebase key in $SECRETS"
     out=$(STOCKPULSE_FCM_TOPIC=stockpulse-test dc --profile job run --rm --no-deps -e STOCKPULSE_DATA_DIR=/tmp -e STOCKPULSE_REPORT_DIR=/tmp job \
-      python -c 'from push_notify import send_push; send_push("StockPulse test", "dsserver push path test (no device subscribes to this topic)", "/latest/us")' 2>&1)
+      python -c 'from push_notify import send_push; send_push("StockPulse test", "Test notification (opt-in test topic). Tap: opens the US report.", "/latest/us")' 2>&1)
     echo "$out" | sed 's/Bearer [^ ]*/Bearer <redacted>/g' | tail -n 3
     grep -q "sent 'StockPulse test' (/latest/us) to topic stockpulse-test" <<<"$out" && echo "15 PUSH-TEST PASSED" || fail "push not sent" ;;
 

@@ -18,8 +18,8 @@ dsserver.rubusdua.net {
 # reached by container name. Add the block, commit, re-run 09 install, then 14-https-proxy.sh
 # dns-ensure (A record, DNS only) and up.
 
-# StockPulse reports (stockpulse/, 2026-11-11). Home LAN only (443/tcp lan scope); no authentication:
-# the reports are not sensitive and the Android app's WebView can't do a login.
+# StockPulse reports (stockpulse/, 2026-11-11). LAN: direct (443/tcp lan scope). Internet (2026-11-12): only via
+# Cloudflare Tunnel -> this site, behind Cloudflare Access e-mail OTP (tunnel/, docs/external-access.md).
 stockpulse.rubusdua.net {
 	encode zstd gzip
 	reverse_proxy stockpulse-web:8080

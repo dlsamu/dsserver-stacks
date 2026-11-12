@@ -6,15 +6,15 @@
 #   - hostname: <name>.rubusdua.net, unique, never an infrastructure name (beacon, dsserver, ssh, admin, ...)
 #   - every route goes to Caddy (https://proxy-caddy:443); Caddy must have a site block for the hostname
 #   - access = "otp" (Cloudflare Access, e-mail one-time PIN) | "service-token" | "public"
-#     ("public" needs public_reason); allowed_emails required for "otp"
+#     ("public" needs public_reason); allowed_emails_file (root-only, outside Git) required for "otp"
 #   - enabled = false keeps the route documented but out of the tunnel (default 404)
 
 [[route]]
 hostname = "stockpulse.rubusdua.net"
 app = "StockPulse reports (read-only HTML)"
-enabled = false
+enabled = true                                                   # 2026-11-12, approved: Access e-mail OTP
 access = "otp"
-allowed_emails = ["<daniel's address>", "<axel's address>"]     # filled in at activation, not committed with real values
+allowed_emails_file = "/etc/dsserver-secrets/stockpulse-access-emails"   # 16-tunnel.sh emails-install; never in Git
 session = "720h"                                                 # 30 days, so the app's WebView rarely asks
 bypass_paths = ["/healthz"]                                      # Beacon's external check; returns "ok", no data
 health_path = "/healthz"

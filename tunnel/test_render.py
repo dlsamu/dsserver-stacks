@@ -4,7 +4,7 @@ import unittest
 import render as r
 
 SITES = {"stockpulse.rubusdua.net", "dsserver.rubusdua.net", "train.rubusdua.net"}
-OK = {"hostname": "stockpulse.rubusdua.net", "enabled": True, "access": "otp", "allowed_emails": ["a@b"],
+OK = {"hostname": "stockpulse.rubusdua.net", "enabled": True, "access": "otp", "allowed_emails_file": "/etc/dsserver-secrets/stockpulse-access-emails",
       "health_path": "/healthz", "bypass_paths": ["/healthz"]}
 
 
@@ -26,7 +26,7 @@ class Render(unittest.TestCase):
 
     def test_access_rules(self):
         self.assertTrue(r.problems([dict(OK, access="none")], SITES))
-        self.assertTrue(r.problems([dict(OK, allowed_emails=[])], SITES))
+        self.assertTrue(r.problems([dict(OK, allowed_emails_file="emails.txt")], SITES))
         self.assertTrue(r.problems([dict(OK, access="public")], SITES))
         self.assertEqual(r.problems([dict(OK, access="public", public_reason="x")], SITES), [])
         self.assertTrue(r.problems([dict(OK, bypass_paths=["/"])], SITES))

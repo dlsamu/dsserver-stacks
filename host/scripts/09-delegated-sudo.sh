@@ -63,8 +63,14 @@ FILES=(
     stockpulse/systemd/stockpulse-check.service
     stockpulse/systemd/stockpulse-check.timer
     stockpulse/check.py
+    host/scripts/16-tunnel.sh
+    tunnel/compose.yaml
+    tunnel/routes.toml
+    tunnel/render.py
+    tunnel/test_render.py
+    tunnel/cf.py
 )
-EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh host/scripts/14-https-proxy.sh host/scripts/15-stockpulse.sh "
+EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh host/scripts/14-https-proxy.sh host/scripts/15-stockpulse.sh host/scripts/16-tunnel.sh "
 
 # Exact command lines daniel may run as root without a password.
 # A1: everything except 'rollback' (rollback stays a manual, deliberate step).
@@ -154,6 +160,22 @@ COMMANDS=(
     "host/scripts/15-stockpulse.sh timers-enable"
     "host/scripts/15-stockpulse.sh timers-disable"
     "host/scripts/15-stockpulse.sh down"
+    # Cloudflare Tunnel + Access for StockPulse (tunnel/, approved 2026-11-12). teardown works only after dns-rollback + down.
+    "host/scripts/16-tunnel.sh preflight"
+    "host/scripts/16-tunnel.sh token-install"
+    "host/scripts/16-tunnel.sh emails-install"
+    "host/scripts/16-tunnel.sh check"
+    "host/scripts/16-tunnel.sh access-setup"
+    "host/scripts/16-tunnel.sh tunnel-create"
+    "host/scripts/16-tunnel.sh config"
+    "host/scripts/16-tunnel.sh up"
+    "host/scripts/16-tunnel.sh dns-switch"
+    "host/scripts/16-tunnel.sh verify"
+    "host/scripts/16-tunnel.sh status"
+    "host/scripts/16-tunnel.sh dns-rollback"
+    "host/scripts/16-tunnel.sh down"
+    "host/scripts/16-tunnel.sh teardown"
+    "host/scripts/16-tunnel.sh token-remove"
 )
 
 fail() { echo; echo "FAILED: $*"; echo "Stopped."; exit 1; }

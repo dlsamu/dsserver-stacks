@@ -1,4 +1,37 @@
-# External application access (design, 2026-11-11, NOT ACTIVE)
+# External application access (design 2026-11-11; StockPulse activation 2026-11-12)
+
+## Status and decisions (2026-11-12, approved by Daniel)
+- **StockPulse** goes public through the tunnel, protected by **Cloudflare Access, e-mail one-time PIN**, allow-list in
+  `/etc/dsserver-secrets/stockpulse-access-emails` (root 0600, never in Git), session 30 days; `/healthz` bypassed.
+- **One name** (option 1 below): `stockpulse.rubusdua.net` becomes a proxied CNAME to the tunnel; `beacon.`/`dsserver.`
+  stay LAN-only A records. Caddy, its certificates, the firewall and the router are not changed.
+- **Credentials:** a *temporary* setup token (Account: Cloudflare Tunnel Edit, Access: Apps and Policies Edit,
+  Access: Organizations, Identity Providers, and Groups Edit; Zone rubusdua.net: DNS Edit), installed root-only,
+  **revoked after setup**. What stays on dsserver: the tunnel credentials file (runs this one tunnel only).
+- **App v0.4** (stockpulse repo): Access login pages stay inside the WebView with JS on only there; opt-in
+  "Test notifications" (topic `stockpulse-test`) so notification tests never reach the family topic.
+- Runbook: `host/scripts/16-tunnel.sh` (all modes delegated via 09). Order below.
+
+### Activation order (16-tunnel.sh)
+`preflight` → `token-install` → `emails-install` → `check` → `access-setup` → `tunnel-create` → `config` → `up`
+→ `dns-switch` (refuses without the Access app: **Access first, DNS second**) → `verify` → phone test on mobile data
+→ rollback drill (`dns-rollback`, LAN check, `dns-switch`, `verify`) → `token-remove` + revoke the token in the dashboard.
+
+### Rollback (verified in the drill)
+1. `16-tunnel.sh dns-rollback`: back to A 192.168.68.115, DNS only = exactly the LAN-only state before (apps on the
+   home Wi-Fi keep working; mobile data shows the app's offline page). Needs the setup token, or do it in the dashboard:
+   DNS → `stockpulse` → A, 192.168.68.115, proxy off.
+2. `16-tunnel.sh down`: connector stopped (with DNS still on the tunnel, the name returns a Cloudflare error page).
+3. Optional `16-tunnel.sh teardown`: deletes the Access apps/policies and the tunnel at Cloudflare and the local credentials.
+
+### What is public, and how it is protected
+- Without a login: only Cloudflare's Access login page (served by Cloudflare) and `/healthz` (returns `ok`).
+  Everything else (reports, archive, any other path) is answered by Cloudflare with a redirect to the login; the
+  request never reaches dsserver.
+- With a login (allow-listed e-mail + one-time code): the read-only report server, same as on the LAN
+  (allow-listed paths only, strict CSP, no scripts).
+- The tunnel can reach only Caddy; unknown hostnames get 404 from the connector.
+
 
 Goal: StockPulse, Axel's training app and future personal apps reachable from the internet, without opening router
 ports and without exposing administration. Status: **design + offline-validated templates only.** No tunnel, no

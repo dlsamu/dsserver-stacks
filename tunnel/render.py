@@ -42,8 +42,8 @@ def problems(routes: list, sites: set) -> list:
         a = r.get("access")
         if a not in ACCESS:
             p.append(f"{where}: access must be one of {sorted(ACCESS)}")
-        if a == "otp" and not r.get("allowed_emails"):
-            p.append(f"{where}: access=otp needs allowed_emails")
+        if a == "otp" and not r.get("allowed_emails_file", "").startswith("/etc/dsserver-secrets/"):
+            p.append(f"{where}: access=otp needs allowed_emails_file under /etc/dsserver-secrets/ (addresses stay out of Git)")
         if a == "public" and not r.get("public_reason"):
             p.append(f"{where}: access=public needs public_reason")
         if not isinstance(r.get("enabled"), bool):
