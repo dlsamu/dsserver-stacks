@@ -10,3 +10,7 @@ host/scripts/ports-*.txt
 
 # Beacon OS images (large, downloadable; verified by flash-sd.sh)
 beacon/images/*.img.xz
+
+# Python bytecode caches (created by running the unit tests; must not make the tree "dirty" for 09 install)
+__pycache__/
+*.py[cod]
