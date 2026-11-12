@@ -142,6 +142,7 @@ COMMANDS=(
     "host/scripts/15-stockpulse.sh test-clean"
     "host/scripts/15-stockpulse.sh units-install"
     "host/scripts/15-stockpulse.sh backup-enable"
+    "host/scripts/15-stockpulse.sh fcm-verify"
     "host/scripts/15-stockpulse.sh timer-enable us"
     "host/scripts/15-stockpulse.sh timer-enable intl"
     "host/scripts/15-stockpulse.sh timer-enable ath"

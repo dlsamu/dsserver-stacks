@@ -25,6 +25,9 @@
 #   timer-enable us|intl|ath | timer-disable us|intl|ath   ONE weekday screener timer (production schedule);
 #                    report freshness is checked from then on for that screener only (state/timer-<job>-enabled-at)
 #   timers-enable | timers-disable   all three screener timers
+#   fcm-verify       Firebase key check WITHOUT sending: file root:10010 0640; readable by the app uid; service
+#                    account of project stockpulse-cdbc3; OAuth token issued; FCM messages:send with validate_only
+#                    (validated by Google, delivered to nobody). Prints no key material. No data dirs mounted.
 #   down             stop and remove the web container (data untouched)
 # Isolated testing of UNRELEASED code (branch `stockpulse-test` in ~/dev/stock-tracker; no 09 install needed):
 #   test-build       image stockpulse-test:<commit> (+ :current) from that branch, same Dockerfile; never
@@ -49,6 +52,7 @@ UNITS="stockpulse-job@.service stockpulse-us.timer stockpulse-intl.timer stockpu
 STATE=/var/lib/stockpulse
 ARCHIVE_RE='report(_ath|_intl_(pacific|european|nordic))?_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}(_TEST)?\.html'
 UID_=10010
+FCM_PROJECT=stockpulse-cdbc3       # Firebase project of the Android app (client config) and the server key
 TESTREF=refs/heads/stockpulse-test
 TESTIMG=stockpulse-test
 ok()   { echo "ok    $*"; }
@@ -226,6 +230,44 @@ EOF
     jobrun STOCKPULSE_DATA="$TEST/data" STOCKPULSE_REPORTS="$TEST/reports" STOCKPULSE_FCM_KEY=/nonexistent/key STOCKPULSE_FCM_TOPIC=stockpulse-test \
       docker compose -f "$STACK/compose.yaml" --profile job run --rm --no-deps job python "$s"
     echo "--- finished $(date +%T)" ;;
+
+  fcm-verify:1)
+    need_image; k="$SECRETS/firebase-service-account.json"
+    [ -s "$k" ] || fail "no Firebase key in $SECRETS"
+    o=$(stat -c '%U:%g %a' "$k")
+    [ "$o" = "root:$UID_ 640" ] && ok "key file root:$UID_ 0640" || bad "key file is ${o/ /, mode } (expected root:$UID_, mode 640)"
+    e=$(mktemp -d); chmod 0755 "$e"; trap 'rm -rf "$e"' EXIT       # empty dirs instead of the production data
+    STOCKPULSE_DATA="$e" STOCKPULSE_REPORTS="$e" FCM_EXPECT="$FCM_PROJECT" dc --profile job run --rm --no-deps -T \
+      -e FCM_EXPECT -e STOCKPULSE_DATA_DIR=/tmp -e STOCKPULSE_REPORT_DIR=/tmp job python -c '
+import json, os, sys
+p, exp, bad = os.environ["STOCKPULSE_FCM_KEY"], os.environ["FCM_EXPECT"], []
+def chk(c, m):
+    print(("ok    " if c else "FAIL  ") + m); c or bad.append(m)
+try:
+    k = json.load(open(p))
+except OSError as e:
+    sys.exit("FAIL  key not readable by uid %d: %s" % (os.getuid(), e.strerror))
+except ValueError:
+    sys.exit("FAIL  key is not valid JSON")
+chk(True, "key readable by the app (uid %d)" % os.getuid())
+chk(k.get("type") == "service_account", "type service_account")
+chk(k.get("project_id") == exp, "project_id %s (expected %s)" % (k.get("project_id"), exp))
+chk(str(k.get("client_email", "")).endswith("@%s.iam.gserviceaccount.com" % exp), "service account belongs to project %s" % exp)
+chk("PRIVATE KEY" in str(k.get("private_key", "")), "private key present (not shown)")
+if bad: sys.exit(1)
+import requests, push_notify as pn
+try:
+    tok = pn._access_token()
+except Exception as e:
+    sys.exit("FAIL  OAuth token refused (key revoked/disabled?): %s" % type(e).__name__)
+chk(bool(tok), "OAuth token issued (key valid and active)")
+r = requests.post("https://fcm.googleapis.com/v1/projects/%s/messages:send" % exp, timeout=30,
+    headers={"Authorization": "Bearer " + tok, "Content-Type": "application/json; UTF-8"},
+    json={"validate_only": True, "message": {"topic": "stockpulse-test", "data": {"title": "validate", "body": "validate_only", "route": "/latest/us"}}})
+chk(r.status_code == 200, "FCM messages:send validate_only -> HTTP %d (validated by Google, delivered to nobody)" % r.status_code)
+if r.status_code != 200: print("      " + r.text[:300].replace(tok, "<redacted>"))
+sys.exit(1 if bad else 0)' || bad "Firebase verification failed"
+    [ "$FAILS" = 0 ] && echo "15 FCM-VERIFY PASSED" || fail "$FAILS check(s) failed" ;;
 
   push-test:1)
     need_image; [ -s "$SECRETS/firebase-service-account.json" ] || fail "no Firebase key in $SECRETS"
