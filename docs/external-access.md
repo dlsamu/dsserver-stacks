@@ -43,6 +43,10 @@
   incident; blips (1-2 failed minutes) and flapping during an outage do not alert or re-alert.
 - Planned rollback (`16 dns-rollback`): run `15 external-disable` first (otherwise the LAN answer alerts, correctly).
 - Live alert-chain test without touching StockPulse: `15 external-test-fail` ... `15 external-test-clear`.
+- Timing: Beszel's agent re-reads systemd units only every 10 minutes (and skips units never active), then the
+  SystemdFailed rule fires. Measured 2026-11-13 (simulated failure, live chain): first failed probe 09:14:20, alarm
+  unit failed 09:16:21, Beszel alert 09:25:46 (~11.5 min); cleared 09:26:09, alarm reset 09:27:21, Beszel resolved
+  09:35:46 (~9.5 min). Expect alert 3-13 min after an outage starts (worst case ~18), recovery 2-12 min after it ends.
 - Beacon's own Beszel check and thresholds are unchanged (independent second view, slower: 1 h loss > 20 %).
 
 ### What is public, and how it is protected
