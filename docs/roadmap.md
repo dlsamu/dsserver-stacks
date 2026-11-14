@@ -44,21 +44,24 @@ The Raspberry Pi (dsoffice) hands its kept responsibilities to dsserver. Milesto
 | H2 | **Trusted HTTPS for dsnas** (`https://dsnas.rubusdua.net`, served by DSM itself; Caddy DNS-01 + `dsnas-cert-push` timer; Beacon expiry check) ([internal-https.md](internal-https.md)) | Done 2026-11-14 |
 
 ## Backlog (agreed 2026-11-14; order = priority, foundations first)
-Priorities: reliability, security, simplicity, efficiency, features. Items stay here until done or explicitly dropped,
-even when the current tools cannot collect them.
+Priorities: reliability, security, simplicity, efficiency, features. Milestone order (owner, 2026-11-14): 1 NAS+DNS
+acceptance, 2 off-device server backups, 3 DATASERVER secondary, 4 off-site family data, 5 physical network
+monitoring, 6 Replay/Kjell on demand, 7 container observability. Items stay here until done or explicitly dropped,
+even when the current tools cannot collect them. StockPulse rollout commitments are unchanged.
 
 | # | Item | Notes / dependencies |
 |---|---|---|
-| D2 | Remove obsolete public DNS records for private hosts (beacon., dsserver. A records) | Only after client verification of D1 and a review of Caddy DNS-01 and other dependencies; Cloudflare change needs approval |
-| NM1 | **dsnas SMART test results** monitored automatically (pass/fail and age of the last quick/extended test) | Not in the Synology MIB and not readable by the unprivileged agent; options: DSM notification -> webhook (ntfy), or a read-only API check with a least-privilege account |
-| NM2 | **Snapshot freshness** per dsnas share, alerting when the newest snapshot is older than ~26 h or a snapshot task fails | `nas/scripts/dsnas-check.py` already checks it manually (needs DSM admin login); needs a least-privilege automated path |
-| NM3 | **Backup job success and freshness** for every backup (dsserver, Beacon, StockPulse, dsnas -> DATASERVER, off-site, Replay) | Each new backup job gets a freshness check + alert when it is created |
-| B1 | **Off-device backups** of dsserver, Beacon and StockPulse (restic to dsnas `server-backup`, restore drills, heartbeat check) | Account `dsserver-backup` + share exist; design + approval |
-| B2 | **DATASERVER as versioned secondary backup** of dsnas (after the Replay switch has soaked) | Needs separate approval; Hyper Backup or rsync + snapshots; then retire FTP/SMB1/AFP on it |
-| B3 | **Off-site backup** of irreplaceable family data (photos, family) | Provider/encryption decision |
-| N2 | **Physical network monitoring:** all five Deco units, TL-SG105E v5 switch, inter-house Ethernet link, gateway, DNS (both resolvers), internet | Latency, loss, availability history, link speeds, error counters wherever a supported interface exists (Deco has no SNMP/API: ping/HTTP only; TL-SG105E is web-managed, no SNMP) |
-| N3 | **On-demand monitoring of Replay** without false alerts while it is intentionally off | e.g. Beszel system paused by default or alerts only while a session is active; coordinated with Claude on Replay |
-| N4 | **Kjell's Linux Mint computer** in monitoring, following the Replay pilot | Over Tailscale; privacy agreed with Kjell |
-| O3 | **Per-container detail in Beszel** (logs/details panel, health) | Socket-proxy allowlist decisions (beacon/README.md) |
+| D2 | Public DNS records for beacon./dsserver. removed (LAN resolvers answer them; `dns/cf-private-records.sh`, rollback `restore`) | **Done 2026-11-14** (approved) |
+| 1 | NAS + DNS acceptance: alert drills (SNMP storage, cert expiry) with phone confirmation, resolver DNS monitors | **Done 2026-11-14** |
+| 2 / B1 | **Off-device server backups** of dsserver, Beacon, StockPulse, configuration and encrypted secrets to dsnas | Proposal [backup-proposal.md](backup-proposal.md), awaiting review |
+| 2 / NM3 | Backup job success and freshness monitoring | Part of B1 |
+| 3 / B2 | **DATASERVER as versioned secondary backup** of dsnas | Only after Replay's migration is completed and verified; separate approval |
+| 4 / B3 | **Off-site backup** of irreplaceable family data | Provider/encryption decision |
+| 5 / N2 | **Physical network monitoring:** five Deco units, TL-SG105E v5, inter-house Ethernet link, gateway, DNS, internet: latency, loss, availability history, link speeds, error counters where a supported interface exists | Deco has no SNMP/API (ping/HTTP only); TL-SG105E is web-managed without SNMP |
+| 6 / N3 | **On-demand monitoring of Replay** without false alerts while it is intentionally off | After Replay's migration; coordinated with Claude on Replay |
+| 6 / N4 | **Kjell's Linux Mint computer**, following the Replay pilot | Over Tailscale; privacy agreed with Kjell |
+| 7 / O3 | **Container observability** in Beszel | Socket-proxy allowlist decisions |
+| NM1 | dsnas SMART test results monitored automatically | Not in the Synology MIB / unprivileged agent; DSM notification -> webhook, or least-privilege API check |
+| NM2 | Snapshot freshness per dsnas share | `dsnas-check.py` checks it manually; needs a least-privilege automated path |
 | S1 | DATASERVER FTP: confirm from outside (mobile data) that 21 + 55536-55546 are closed; decide FTP/`peter` | Router forward removed by owner 2026-11-14 |
 | - | Incoming VPN access to dsserver, rootless Docker for axel; log forwarding only if needed | unchanged from before |

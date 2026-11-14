@@ -47,5 +47,14 @@ check (it alerts later, on 1-hour loss, and also covers "NAS up but SMB down").
   which lives only in Beszel's settings.
 - Snapshot freshness and future backup-job freshness as an alerting check (needs a least-privilege way to read
   them; DSM has no read-only admin role, so not done yet).
-- End-to-end alert test with the owner watching the phone (see the session plan: stop the agent package for
-  ~6 min -> Status alert -> start -> recovery).
+
+
+## Alert drills (2026-11-14, owner confirmed phone delivery)
+| Drill | How (non-destructive) | Alert | Recovery |
+|---|---|---|---|
+| dsnas down | owner stopped the Beszel Agent package | dsnas Status, 5 min after down (13:47 -> 13:52), only alert firing | after restart |
+| SNMP storage problem | root flag `/etc/dsnas-monitor/simulate-problem` on Beacon -> check reports a simulated problem; 2 runs | beacon SystemdFailed 15:17 -> 15:22, only alert firing | flag removed 15:22 -> cleared 15:32 |
+| Certificate expiry | root flag `/etc/beacon-certwatch/simulate-expiry` -> threshold 400 days | beacon SystemdFailed 15:32 -> 15:42, only alert firing | flag removed 15:42 -> cleared 15:52 |
+
+Latency: Beszel's agent re-reads systemd units every ~10 min, so systemd-based alerts and recoveries arrive 5-10 min
+after the event. The flags are the supported way to repeat the drills (remove them afterwards).

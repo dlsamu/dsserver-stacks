@@ -5,7 +5,12 @@ require >= MIN_DAYS left. Exit 1 on any certificate problem -> unit fails -> Bes
 A host that does not answer at all is reported but not counted: reachability has its own alerts (Beszel Status),
 so one outage does not raise two alerts. Design: /srv/stacks/docs/internal-https.md."""
 import socket, ssl, sys, time
+import os
 MIN_DAYS = 21
+SIMULATE = "/etc/beacon-certwatch/simulate-expiry"   # alert drill: root creates it -> every certificate counts as expiring
+if os.path.exists(SIMULATE):
+    MIN_DAYS = 400
+    print(f"SIMULATION: threshold raised to {MIN_DAYS} days (alert drill; remove {SIMULATE})")
 TARGETS = [  # (name, address, port)
     ("dsnas.rubusdua.net", "192.168.68.112", 443),
     ("dsserver.rubusdua.net", "192.168.68.115", 443),

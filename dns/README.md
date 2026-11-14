@@ -116,3 +116,18 @@ system resolver. Fix per browser if needed: Settings > Privacy > Secure DNS > *c
 | Browser DoH | depends on the browser setting (see above); the phone test resolved the local-only name, so it uses the LAN resolvers |
 
 Not tested (by design): host reboots (no reboot approved; units are enabled and `verify` checks it).
+
+## Public records retired (2026-11-14, owner-approved)
+The public A records `beacon.rubusdua.net -> 192.168.68.121` and `dsserver.rubusdua.net -> 192.168.68.115` were
+deleted at Cloudflare with `dns/cf-private-records.sh retire` (rollback: `restore`). Checked first: certificate
+renewal uses DNS-01 TXT records only (proven by `dsnas.rubusdua.net`, which never had a public record); the StockPulse
+tunnel routes to the Caddy container by name; Beszel agents/monitors use the LAN resolvers or IP addresses.
+After removal: public DNS answers NXDOMAIN for both; `test-dns.sh` 70/70; `https://beacon.`, `https://dsserver.`,
+`https://dsnas.rubusdua.net` trusted from dsserver and Beacon; StockPulse public path still behind Access (302),
+`/healthz` 200; all Beszel systems up, no alerts. `14-https-proxy.sh dns-ensure` skips `# local-only:` names, so it
+never recreates them. Consequence: devices that do not use the LAN resolvers (fixed public DNS, browser DoH to a
+public provider, mobile data) cannot resolve these names; LAN-only services, so that is intended.
+
+## Resolver monitoring
+Beszel DNS monitors on Beacon query `dsnas.rubusdua.net` at 192.168.68.121 and at 192.168.68.115 every 60 s
+(ids a9413e4f, 3548d678); a resolver that stops answering raises the beacon NetworkMonitorLoss alert (> 20 % loss/h).

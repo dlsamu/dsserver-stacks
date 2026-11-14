@@ -278,3 +278,46 @@ Details: `manifests/replay-restic-intrinsic.txt`.
 
 **Overall: PARTIAL.** Everything the family needs (photos, documents, media) is on dsnas, verified and protected;
 DATASERVER is unchanged. What remains is the Replay switch, the router fix and a few manual settings.
+
+## Credentials: move to Bitwarden (owner), then remove from dsserver
+
+`~/.config/nas/dsnas-accounts.cred` (daniel, 0600) holds the four dsnas service-account passwords, one line each
+(`family=`, `media=`, `replay=`, `dsserver-backup=`). Nothing on dsserver runs with them automatically; they are
+needed by people/devices (family, media), by Replay after its switch (replay) and by the coming server backups
+(dsserver-backup, re-entered root-only when that milestone is implemented).
+
+1. In Bitwarden create four **Login** items (folder e.g. "Home infrastructure"):
+
+   | Item name | Username | URI | Notes |
+   |---|---|---|---|
+   | dsnas - family | `family` | `smb://dsnas.rubusdua.net/` | household devices: photos, family, exchange (rw), media (ro) |
+   | dsnas - media | `media` | `smb://dsnas.rubusdua.net/media` | TVs/players, read-only |
+   | dsnas - replay | `replay` | `smb://dsnas.rubusdua.net/replay-backup` | Replay restic + git bundles only (see nas/replay-handover.md) |
+   | dsnas - dsserver-backup | `dsserver-backup` | `smb://dsnas.rubusdua.net/server-backup` | server backups only |
+
+2. Copy one password at a time in Konsole (prints a single value, no other output):
+   `grep '^family=' ~/.config/nas/dsnas-accounts.cred | cut -d= -f2-`
+   paste it into the Bitwarden item, then **Ctrl+Shift+K** (clear scrollback). Repeat for `media`, `replay`,
+   `dsserver-backup`. Afterwards clear KDE's clipboard history (system tray > Clipboard > Clear history).
+3. Check each item once: e.g. open `smb://dsnas.rubusdua.net/exchange` in Dolphin as `family` with the Bitwarden value.
+4. Delete the file: `shred -u ~/.config/nas/dsnas-accounts.cred`.
+   Afterwards `nas/scripts/dsnas-check.py` runs its SMB matrix only if the file exists (run with `--no-smb`, or
+   restore a temporary copy from Bitwarden for a full check and shred it again).
+
+The other secrets stay where they are: `cert-deploy` password `/etc/dsserver-secrets/dsnas-cert-deploy.pw` (root,
+used by the timer; Bitwarden copy optional, it can be regenerated), SNMP keys on Beacon `/etc/dsnas-monitor/snmp.conf`.
+
+## Cleanup of the temporary setup access (owner decides when)
+
+State: SSH and Telnet on dsnas are **off**. `claude-setup` (DSM administrator) still exists; the watchdog on dsnas
+**disables** it on 2026-11-15 10:00 (it does not delete it) and then exits.
+
+1. When no follow-up work needs it: DSM > Control Panel > User & Group > `claude-setup` > Delete.
+2. On dsserver: `shred -u ~/.config/nas/dsnas-setup.cred`. (`nas/scripts/dsm.py` and the API part of
+   `dsnas-check.py` then need an administrator login supplied for that run; `cert-deploy` is not reused for that.)
+3. Optional, the migration work folder `/volume1/@claude-migration` on dsnas (root-only, ~103 MB: copier, database
+   with the migrated file list, logs; no credentials). Without SSH: DSM > Control Panel > Task Scheduler > Create >
+   Scheduled Task > User-defined script, user `root`, run once, script `rm -rf /volume1/@claude-migration`; run it,
+   then delete the task. (Keeping it is harmless; it documents the migration.)
+4. Check: DSM > Control Panel > User & Group shows no `claude-setup`; Terminal & SNMP > SSH still off;
+   `dsnas-check.py --no-smb` with an admin login: PASS.

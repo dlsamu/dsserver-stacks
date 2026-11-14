@@ -13,6 +13,8 @@ browser on the LAN ──DNS──> Cloudflare (public, DNS only)   beacon.rubus
 Caddy ──DNS-01 (TXT record via Cloudflare API, outbound only)──> Let's Encrypt certificate, auto-renewed
 ```
 
+- **Superseded 2026-11-14:** names are now answered by the LAN resolvers ([../dns/README.md](../dns/README.md)) and the
+  public A records were removed. Original design, for history:
 - **Names:** ordinary public A records in the Cloudflare zone, **DNS only (grey cloud)**, pointing to
   the hosts' private LAN addresses. No local DNS server, no Deco/DHCP change, no client configuration.
   This was tested on 2026-11-11: the household's resolvers (2.248.248.2 and .248, handed out by Deco DHCP),

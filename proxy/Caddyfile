@@ -10,6 +10,8 @@
 }
 
 # Reserved for future administration interfaces; answers with a plain 404 until one exists.
+# local-only (2026-11-14): resolved by the LAN resolvers (dns/), no public record; dns-ensure skips it.
+# local-only: dsserver.rubusdua.net
 dsserver.rubusdua.net {
 	respond "dsserver: nothing published here yet" 404
 }

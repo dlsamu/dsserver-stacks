@@ -68,9 +68,14 @@ def reachable():
     return False
 
 
+SIMULATE = "/etc/dsnas-monitor/simulate-problem"   # alert drill: root creates it, the check reports a fake problem
+
+
 def main():
     try:
         problems, info = check()
+        if os.path.exists(SIMULATE):
+            problems.append(f"SIMULATED storage problem (alert drill; remove {SIMULATE})")
     except Exception as e:
         if not reachable():
             # dsnas is down or off the network: Beszel's dsnas Status alert reports that. Do not raise a

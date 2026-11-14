@@ -111,7 +111,11 @@ def smb_checks():
 
 if __name__ == "__main__":
     api_checks()
-    if "--no-smb" not in sys.argv:
+    if "--no-smb" in sys.argv:
+        pass
+    elif not os.path.exists(os.path.expanduser("~/.config/nas/dsnas-accounts.cred")):
+        print("info SMB matrix skipped: ~/.config/nas/dsnas-accounts.cred not present (passwords are in Bitwarden)")
+    else:
         smb_checks()
     print(f"\n{'PASS' if not fails else 'FAIL'}: {len(fails)} failure(s)")
     sys.exit(1 if fails else 0)
