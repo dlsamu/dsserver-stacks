@@ -6,7 +6,7 @@
 #   token-install  /home/daniel/.cloudflare-token-dsserver (daniel 0600, one line) ->
 #                  /etc/dsserver-secrets/cloudflare.env (root 0600); checked at Cloudflare; local file shredded
 #   token-check    re-check the installed token at Cloudflare (status, zone visibility); never prints it
-#   dns-ensure     for every *.rubusdua.net site in the snapshot's Caddyfile: create a missing A record
+#   dns-ensure     for every *.rubusdua.net site in the snapshot's Caddyfile (except '# cert-only' sites): create a missing A record
 #                  -> 192.168.68.115, DNS only (grey cloud). Never changes or deletes existing records.
 #   build          build the image (same Dockerfile as Beacon)
 #   up             create/recreate the container from the snapshot's compose file and Caddyfile, wait
@@ -72,7 +72,8 @@ case "${1:-}:$#" in
   token-check:1) token_check ;;
   dns-ensure:1)
     # Names come only from the reviewed Caddyfile; the token reaches curl through builtins (never argv/logs).
-    mapfile -t names < <(grep -oE '^[a-z0-9-]+\.rubusdua\.net' "$ROOT/proxy/Caddyfile" | sort -u)
+    # Sites marked "# cert-only" are served by another host (e.g. dsnas): never create a record for them.
+    mapfile -t names < <(grep -oE '^[a-z0-9-]+\.rubusdua\.net' "$ROOT/proxy/Caddyfile" | sort -u | grep -vxF -f <(sed -n 's/^# cert-only: //p' "$ROOT/proxy/Caddyfile") || true)
     ( . "$SECRET"; cf() { printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n%s' "$CF_API_TOKEN" "$1" | curl -s -m 20 -K -; }
       zone=$(cf 'url = "https://api.cloudflare.com/client/v4/zones?name=rubusdua.net"' | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["result"][0]["id"])')
       for n in "${names[@]}"; do

@@ -4,7 +4,10 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=oneshot
+# exec, not oneshot: a failed oneshot never gets an ActiveEnterTimestamp and the Beszel agent skips such units,
+# so the failure would never reach the SystemdFailed alert (same rule as stockpulse/systemd, fixed 2026-11-14).
+Type=exec
+RuntimeMaxSec=3min
 ExecStart=/usr/bin/python3 -I /srv/beacon/nasmon/dsnas_health.py
 StateDirectory=dsnas-health
 Environment=SNMP_PERSISTENT_DIR=/var/lib/dsnas-health
@@ -13,4 +16,3 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 ReadOnlyPaths=/etc/dsnas-monitor
-TimeoutStartSec=120

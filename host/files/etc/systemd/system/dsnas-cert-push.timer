@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily check/deploy of the dsnas.rubusdua.net certificate
+
+[Timer]
+OnCalendar=*-*-* 04:40
+RandomizedDelaySec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

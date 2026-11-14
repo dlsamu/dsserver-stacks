@@ -78,8 +78,12 @@ FILES=(
     dns/dnsmasq.conf
     dns/records.conf
     dns/local-dns.service
+    host/scripts/18-dsnas-cert.sh
+    host/bin/dsnas-cert-push
+    host/files/etc/systemd/system/dsnas-cert-push.service
+    host/files/etc/systemd/system/dsnas-cert-push.timer
 )
-EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh host/scripts/14-https-proxy.sh host/scripts/15-stockpulse.sh host/scripts/16-tunnel.sh dns/local-dns.sh dns/dnsq.py "
+EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh host/scripts/14-https-proxy.sh host/scripts/15-stockpulse.sh host/scripts/16-tunnel.sh dns/local-dns.sh dns/dnsq.py host/scripts/18-dsnas-cert.sh host/bin/dsnas-cert-push "
 
 # Exact command lines daniel may run as root without a password.
 # A1: everything except 'rollback' (rollback stays a manual, deliberate step).
@@ -198,6 +202,14 @@ COMMANDS=(
     "dns/local-dns.sh verify"
     "dns/local-dns.sh status"
     "dns/local-dns.sh test-restart"
+    # dsnas trusted HTTPS (docs/internal-https.md, approved 2026-11-14)
+    "host/scripts/18-dsnas-cert.sh preflight"
+    "host/scripts/18-dsnas-cert.sh gen-password"
+    "host/scripts/18-dsnas-cert.sh check"
+    "host/scripts/18-dsnas-cert.sh push"
+    "host/scripts/18-dsnas-cert.sh force"
+    "host/scripts/18-dsnas-cert.sh install"
+    "host/scripts/18-dsnas-cert.sh status"
 )
 
 fail() { echo; echo "FAILED: $*"; echo "Stopped."; exit 1; }

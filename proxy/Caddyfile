@@ -24,3 +24,11 @@ stockpulse.rubusdua.net {
 	encode zstd gzip
 	reverse_proxy stockpulse-web:8080
 }
+
+# dsnas.rubusdua.net (2026-11-14, docs/internal-https.md): CERTIFICATE ONLY. Caddy obtains and renews the certificate
+# by DNS-01; host/bin/dsnas-cert-push imports it into dsnas, which serves it itself (DSM customized domain). The name
+# resolves to dsnas (192.168.68.112) via the local resolvers and has NO public record; dns-ensure skips cert-only names.
+# cert-only: dsnas.rubusdua.net
+dsnas.rubusdua.net {
+	respond "dsnas.rubusdua.net is served by dsnas itself, not by dsserver" 421
+}

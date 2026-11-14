@@ -1,0 +1,21 @@
+[Unit]
+Description=Deploy the dsnas.rubusdua.net certificate (Caddy DNS-01) to dsnas if it changed
+Documentation=file:///srv/stacks/docs/internal-https.md
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+# exec, not oneshot: Beszel's agent skips failed oneshot units (no ActiveEnterTimestamp) -> no SystemdFailed alert.
+Type=exec
+RuntimeMaxSec=5min
+ExecStart=/usr/local/lib/dsserver-admin/host/bin/dsnas-cert-push push
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE

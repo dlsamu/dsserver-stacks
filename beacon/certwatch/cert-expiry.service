@@ -1,0 +1,15 @@
+[Unit]
+Description=Certificate check of internal HTTPS names (dsnas, dsserver, beacon) (alerts via Beszel SystemdFailed)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# exec, not oneshot: failed oneshot units are invisible to the Beszel agent's SystemdFailed alert.
+Type=exec
+RuntimeMaxSec=2min
+ExecStart=/usr/bin/python3 -I /srv/beacon/certwatch/cert_expiry.py
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes

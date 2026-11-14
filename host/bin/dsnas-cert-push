@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""Deploy the Let's Encrypt certificate for dsnas.rubusdua.net (obtained and renewed by Caddy on dsserver via DNS-01)
+to dsnas (Synology DSM), which serves it itself (DSM customized domain on 443). Design: docs/internal-https.md.
+
+Usage (root; run by dsnas-cert-push.service daily, or by host/scripts/18-dsnas-cert.sh):
+  dsnas-cert-push check    read-only: compare Caddy's certificate with the one dsnas serves; days left
+  dsnas-cert-push push     import only if dsnas serves a different certificate than Caddy holds (normal run)
+  dsnas-cert-push force    re-import Caddy's current certificate even if identical (renewal simulation: exercises
+                           login, lookup by description, replace-in-place and verification without reissuing)
+
+TLS identity is always verified before the DSM password is sent:
+  normal:    dsnas must present a publicly trusted certificate for dsnas.rubusdua.net (system CA store, hostname check)
+  bootstrap: only while dsnas still serves its factory self-signed certificate, whose SHA-256 is pinned below
+             (recorded 2026-11-14 from dsserver and Beacon independently). Any other untrusted certificate -> abort.
+The DSM account is `cert-deploy` (dedicated admin; DSM has no certificate-only role); its password is read from
+/etc/dsserver-secrets/dsnas-cert-deploy.pw (root 0600) and never printed. Exit 0 = ok, 1 = failure (-> unit fails ->
+Beszel SystemdFailed -> ntfy)."""
+import glob, hashlib, http.client, json, os, socket, ssl, sys, time, urllib.parse, uuid
+
+NAME = "dsnas.rubusdua.net"
+IP = "192.168.68.112"
+USER = "cert-deploy"
+PWFILE = "/etc/dsserver-secrets/dsnas-cert-deploy.pw"
+CADDY = "/srv/appdata/proxy/data/caddy/certificates"
+DESC = "dsnas.rubusdua.net (Let's Encrypt via dsserver Caddy DNS-01)"
+BOOTSTRAP_PIN = "86a853d36f367d6ea8fd7d35bb311b59e946265f0e85c20e147d807aeea70b5e"  # DSM factory cert (CN=synology)
+MIN_DAYS = 21
+
+def log(msg): print(msg, flush=True)
+def die(msg): log("FAILED: " + msg); sys.exit(1)
+
+def caddy_cert():
+    d = glob.glob(f"{CADDY}/*/{NAME}")
+    if len(d) != 1: die(f"no unique Caddy certificate directory for {NAME} under {CADDY} (found {len(d)})")
+    pem = open(f"{d[0]}/{NAME}.crt").read(); key = open(f"{d[0]}/{NAME}.key").read()
+    blocks = ["-----BEGIN CERTIFICATE-----" + b for b in pem.split("-----BEGIN CERTIFICATE-----")[1:]]
+    if len(blocks) < 2: die("Caddy certificate file has no intermediate")
+    leaf, chain = blocks[0].strip() + "\n", "".join(blocks[1:]).strip() + "\n"
+    der = ssl.PEM_cert_to_DER_cert(leaf)
+    return leaf, chain, key, hashlib.sha256(der).hexdigest(), der
+
+def not_after_days(der):
+    # parse with the ssl module's test decoder via a temporary file (stdlib only)
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".pem") as f:
+        f.write(ssl.DER_cert_to_PEM_cert(der)); f.flush()
+        info = ssl._ssl._test_decode_cert(f.name)
+    return (ssl.cert_time_to_seconds(info["notAfter"]) - time.time()) / 86400, info
+
+def served(port=443, verify=False):
+    """Certificate dsnas serves for NAME on port; with verify=True the chain + hostname must validate."""
+    ctx = ssl.create_default_context()
+    if not verify: ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+    with socket.create_connection((IP, port), 15) as s, ctx.wrap_socket(s, server_hostname=NAME) as t:
+        der = t.getpeercert(binary_form=True)
+    return hashlib.sha256(der).hexdigest(), der
+
+class Conn(http.client.HTTPSConnection):
+    """HTTPS to dsnas by IP (no DNS dependency) with SNI/Host = NAME, or pinned bootstrap on 5001."""
+    def __init__(self, port, ctx, sni, pin=None):
+        super().__init__(NAME if sni else IP, port, context=ctx, timeout=60)
+        self.pin, self.sni = pin, sni
+    def connect(self):
+        sock = socket.create_connection((IP, self.port), 20)
+        self.sock = self._context.wrap_socket(sock, server_hostname=NAME if self.sni else None)
+        if self.pin is not None:
+            fp = hashlib.sha256(self.sock.getpeercert(binary_form=True)).hexdigest()
+            if fp != self.pin:
+                self.sock.close(); die(f"bootstrap pin mismatch on {IP}:{self.port} (got {fp[:16]}...): not sending credentials")
+
+def api_conn():
+    try:
+        served(443, verify=True)
+        log(f"ok    dsnas presents a trusted certificate for {NAME}: API over https://{NAME}/ (verified)")
+        return lambda: Conn(443, ssl.create_default_context(), sni=True)
+    except ssl.SSLCertVerificationError:
+        fp, _ = served(5001)
+        if fp != BOOTSTRAP_PIN:
+            die(f"dsnas serves an untrusted certificate that is not the pinned factory certificate ({fp[:16]}...)")
+        log("ok    bootstrap: dsnas still serves the pinned factory certificate; API over 5001 with pin check")
+        ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+        return lambda: Conn(5001, ctx, sni=False, pin=BOOTSTRAP_PIN)
+
+def call(mk, path, params=None, body=None, ctype=None):
+    c = mk(); hdr = {}
+    if ctype: hdr["Content-Type"] = ctype
+    data = body if body is not None else urllib.parse.urlencode(params or {}).encode()
+    if body is None: hdr["Content-Type"] = "application/x-www-form-urlencoded"
+    c.request("POST", path, body=data, headers=hdr)
+    r = c.getresponse(); raw = r.read(); c.close()
+    try: return json.loads(raw)
+    except Exception: die(f"non-JSON answer from {path}: HTTP {r.status}")
+
+def deploy(force):
+    leaf, chain, key, fp_local, der = caddy_cert()
+    days, info = not_after_days(der)
+    subj = dict(x[0] for x in info["subject"]).get("commonName")
+    if subj != NAME: die(f"Caddy certificate is for {subj}, not {NAME}")
+    log(f"ok    Caddy certificate {fp_local[:16]}... CN={subj}, {days:.0f} days left")
+    if days < MIN_DAYS: die(f"Caddy's certificate has only {days:.0f} days left: Caddy renewal is not working")
+    fp_served, _ = served(443)
+    if fp_served == fp_local and not force:
+        log("ok    dsnas already serves this certificate: nothing to do"); return
+    log(("info  forced re-import (renewal simulation)" if fp_served == fp_local else
+         f"info  dsnas serves {fp_served[:16]}...: deploying the new certificate"))
+    mk = api_conn()
+    pw = open(PWFILE).read().strip()
+    if not pw: die(f"{PWFILE} is empty")
+    r = call(mk, "/webapi/entry.cgi", {"api": "SYNO.API.Auth", "version": "6", "method": "login", "account": USER,
+             "passwd": pw, "session": "cert-deploy", "format": "sid", "enable_syno_token": "yes"})
+    del pw
+    if not r.get("success"): die(f"DSM login as {USER} failed (code {r.get('error', {}).get('code')})")
+    sid, tok = r["data"]["sid"], r["data"].get("synotoken", "")
+    q = f"_sid={urllib.parse.quote(sid)}&SynoToken={urllib.parse.quote(tok)}"
+    try:
+        r = call(mk, f"/webapi/entry.cgi?{q}", {"api": "SYNO.Core.Certificate.CRT", "version": "1", "method": "list"})
+        if not r.get("success"): die(f"certificate list failed (code {r.get('error', {}).get('code')})")
+        mine = [c for c in r["data"]["certificates"] if c.get("desc") == DESC]
+        if len(mine) > 1: die(f"{len(mine)} certificates with our description on dsnas; clean up in DSM first")
+        cid = mine[0]["id"] if mine else ""
+        log(f"info  {'replacing certificate ' + cid if cid else 'first import (new certificate entry)'}; set as default")
+        b = uuid.uuid4().hex; parts = []
+        for field, fname, content in (("key", "privkey.pem", key), ("cert", "cert.pem", leaf), ("inter_cert", "chain.pem", chain)):
+            parts.append(f'--{b}\r\nContent-Disposition: form-data; name="{field}"; filename="{fname}"\r\n'
+                         f'Content-Type: application/octet-stream\r\n\r\n{content}\r\n')
+        for field, val in (("id", cid), ("desc", DESC), ("as_default", "true")):
+            parts.append(f'--{b}\r\nContent-Disposition: form-data; name="{field}"\r\n\r\n{val}\r\n')
+        body = ("".join(parts) + f"--{b}--\r\n").encode()
+        r = call(mk, f"/webapi/entry.cgi?api=SYNO.Core.Certificate&method=import&version=1&{q}", body=body,
+                 ctype=f"multipart/form-data; boundary={b}")
+        if not r.get("success"): die(f"certificate import failed (code {r.get('error', {}).get('code')})")
+        log(f"ok    imported (restart_httpd={r.get('data', {}).get('restart_httpd')})")
+    finally:
+        try: call(mk, f"/webapi/entry.cgi?{q}", {"api": "SYNO.API.Auth", "version": "6", "method": "logout", "session": "cert-deploy"})
+        except SystemExit: raise
+        except Exception: pass
+    verify(fp_local, wait=90)
+
+def verify(fp_local, wait=0):
+    deadline = time.time() + wait
+    while True:
+        try:
+            fp, der = served(443, verify=True)
+            if fp == fp_local:
+                days, _ = not_after_days(der)
+                log(f"ok    https://{NAME}/ serves the deployed certificate, trusted, hostname ok, {days:.0f} days left"); return
+            err = f"serves {fp[:16]}..., expected {fp_local[:16]}..."
+        except (OSError, ssl.SSLError) as e:
+            err = str(e)
+        if time.time() > deadline: die(f"verification: {err}")
+        time.sleep(5)
+
+def check():
+    leaf, chain, key, fp_local, der = caddy_cert()
+    days, _ = not_after_days(der)
+    fp, sder = served(443)
+    sdays, _ = not_after_days(sder)
+    log(f"Caddy : {fp_local[:16]}...  {days:.0f} days left")
+    log(f"dsnas : {fp[:16]}...  {sdays:.0f} days left  {'(same)' if fp == fp_local else '(DIFFERENT: push pending)'}")
+    try: served(443, verify=True); log("dsnas : trusted chain + hostname ok")
+    except ssl.SSLError as e: log(f"dsnas : NOT trusted ({e.__class__.__name__})")
+
+if __name__ == "__main__":
+    if os.geteuid() != 0: die("run as root")
+    mode = sys.argv[1] if len(sys.argv) == 2 else ""
+    if mode == "check": check()
+    elif mode in ("push", "force"): deploy(force=(mode == "force"))
+    else: print(__doc__); sys.exit(2)
