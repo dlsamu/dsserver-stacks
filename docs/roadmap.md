@@ -39,12 +39,25 @@ The Raspberry Pi (dsoffice) hands its kept responsibilities to dsserver. Milesto
 | X1 | External access: Cloudflare Tunnel → Access (OTP) → Caddy, routes allowlisted in `tunnel/routes.toml` ([external-access.md](external-access.md)) | Designed 2026-11-11, templates offline-validated; **not active**; decisions: auth model, hostnames; needs Zero Trust org + scoped token |
 | N1 | Network monitoring on Beacon: 10 Beszel checks + netwatch outage history/classification (beacon/README.md) | Live 2026-11-11 |
 
-## Deferred (waits on the replacement NAS)
-- B: restic backups of dsserver to the new NAS, plus restore drills and a backup check in the heartbeat. Until then, **no service holding valuable data is deployed**, and dev work is pushed to GitHub.
-- NAS migration from DATASERVER (DATASERVER and Replay are frozen until the photo backup has been verified).
+| NAS | **dsnas** (DS223j): family data + media migrated and three-way SHA-256 verified, shares/accounts/snapshots, LAN-only ([nas/README.md](../nas/README.md)); Beszel agent + SNMPv3 health ([nas/monitoring.md](../nas/monitoring.md)) | Done 2026-11-14; Replay switch pending (handled on Replay) |
+| D1 | **Local DNS:** dnsmasq resolvers on Beacon + dsserver, identical records, LAN-only ([dns/README.md](../dns/README.md)) | Both live and verified 2026-11-14; Deco DHCP DNS change by owner, then client verification |
 
-## Later
-- Incoming VPN access to dsserver (adding `tailscale0` to `vpn_ifaces` and lifting shields-up), only when a service needs it; rootless Docker for axel.
-- More hosts in Beszel: Raspberry Pis, the replacement NAS (reachability), the network and the internet, the Linux Mint PC (over the VPN).
-- An off-site copy of backups.
-- Logs: forwarding with `systemd-journal-remote` only if a need appears (see monitoring-architecture §5).
+## Backlog (agreed 2026-11-14; order = priority, foundations first)
+Priorities: reliability, security, simplicity, efficiency, features. Items stay here until done or explicitly dropped,
+even when the current tools cannot collect them.
+
+| # | Item | Notes / dependencies |
+|---|---|---|
+| D2 | Remove obsolete public DNS records for private hosts (beacon., dsserver. A records) | Only after client verification of D1 and a review of Caddy DNS-01 and other dependencies; Cloudflare change needs approval |
+| NM1 | **dsnas SMART test results** monitored automatically (pass/fail and age of the last quick/extended test) | Not in the Synology MIB and not readable by the unprivileged agent; options: DSM notification -> webhook (ntfy), or a read-only API check with a least-privilege account |
+| NM2 | **Snapshot freshness** per dsnas share, alerting when the newest snapshot is older than ~26 h or a snapshot task fails | `nas/scripts/dsnas-check.py` already checks it manually (needs DSM admin login); needs a least-privilege automated path |
+| NM3 | **Backup job success and freshness** for every backup (dsserver, Beacon, StockPulse, dsnas -> DATASERVER, off-site, Replay) | Each new backup job gets a freshness check + alert when it is created |
+| B1 | **Off-device backups** of dsserver, Beacon and StockPulse (restic to dsnas `server-backup`, restore drills, heartbeat check) | Account `dsserver-backup` + share exist; design + approval |
+| B2 | **DATASERVER as versioned secondary backup** of dsnas (after the Replay switch has soaked) | Needs separate approval; Hyper Backup or rsync + snapshots; then retire FTP/SMB1/AFP on it |
+| B3 | **Off-site backup** of irreplaceable family data (photos, family) | Provider/encryption decision |
+| N2 | **Physical network monitoring:** all five Deco units, TL-SG105E v5 switch, inter-house Ethernet link, gateway, DNS (both resolvers), internet | Latency, loss, availability history, link speeds, error counters wherever a supported interface exists (Deco has no SNMP/API: ping/HTTP only; TL-SG105E is web-managed, no SNMP) |
+| N3 | **On-demand monitoring of Replay** without false alerts while it is intentionally off | e.g. Beszel system paused by default or alerts only while a session is active; coordinated with Claude on Replay |
+| N4 | **Kjell's Linux Mint computer** in monitoring, following the Replay pilot | Over Tailscale; privacy agreed with Kjell |
+| O3 | **Per-container detail in Beszel** (logs/details panel, health) | Socket-proxy allowlist decisions (beacon/README.md) |
+| S1 | DATASERVER FTP: confirm from outside (mobile data) that 21 + 55536-55546 are closed; decide FTP/`peter` | Router forward removed by owner 2026-11-14 |
+| - | Incoming VPN access to dsserver, rootless Docker for axel; log forwarding only if needed | unchanged from before |

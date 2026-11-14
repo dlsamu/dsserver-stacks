@@ -70,7 +70,7 @@ preflight)
     sed -e "s#$ETC/listen.conf#$t/listen.conf#; s#$ETC/records.conf#$HERE/records.conf#" "$HERE/dnsmasq.conf" > "$t/c"
     echo "listen-address=$ADDR" > "$t/listen.conf"
     $DNSMASQ --test --conf-file="$t/c" >/dev/null 2>&1 || fail "dnsmasq syntax check"; ok "configuration syntax"
-    if nft list table $FWTABLE 2>/dev/null | grep -qE 'th dport 53 accept|[ {,]53 comment'; then ok "firewall ($FWTABLE) has a port 53 rule"
+    if nft -nn list table $FWTABLE 2>/dev/null | grep -qE 'th dport 53 accept|[ {,]53 comment'; then ok "firewall ($FWTABLE) has a port 53 rule"
     else info "no port 53 rule in the firewall yet: LAN clients will be dropped until it is added"; fi
     ;;
 install)
