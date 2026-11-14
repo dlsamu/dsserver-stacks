@@ -164,8 +164,8 @@ def stage(c):
     os.makedirs(STAGING, mode=0o700)
     mans = [sqlite_copy(d["name"], d["path"], f"{STAGING}/sqlite") for d in c.get("sqlite", [])]
     sysman = {"host": c["host"], "created": now().isoformat(timespec="seconds"),
-              "enabled_units": sorted(subprocess.run(["systemctl", "list-unit-files", "--state=enabled", "--no-legend", "--plain"],
-                                      capture_output=True, text=True).stdout.split()[0::2]),
+              "enabled_units": sorted(l.split()[0] for l in subprocess.run(["systemctl", "list-unit-files", "--state=enabled", "--no-legend", "--plain"],
+                                      capture_output=True, text=True).stdout.splitlines() if l.strip()),
               "dpkg_selections_sha256": None, "git": {}, "docker_images": []}
     sel = subprocess.run(["dpkg", "--get-selections"], capture_output=True, text=True).stdout
     open(f"{STAGING}/dpkg-selections.txt", "w").write(sel); sysman["dpkg_selections_sha256"] = hashlib.sha256(sel.encode()).hexdigest()
