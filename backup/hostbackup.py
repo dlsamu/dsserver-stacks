@@ -61,7 +61,8 @@ def restic_env(c):
 def restic(c, *args, check=True, capture=False, timeout=None):
     """Run restic against the VERIFIED repository. Returns CompletedProcess. Non-zero exit -> Fail (if check)."""
     verify_destination(c)
-    cmd = [RESTIC, "--retry-lock", c.get("retry_lock", "15m"), *args]
+    lim = ["--limit-upload", str(c["limit_upload_kib"])] if c.get("limit_upload_kib") else []   # tests only
+    cmd = [RESTIC, "--retry-lock", c.get("retry_lock", "15m"), *lim, *args]
     r = subprocess.run(cmd, env=restic_env(c), capture_output=capture, text=True, timeout=timeout)
     if check and r.returncode != 0:
         raise Fail(f"restic {args[0]} exit {r.returncode}" + (" (incomplete snapshot: some files could not be read)" if r.returncode == 3 else "")

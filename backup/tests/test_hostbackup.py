@@ -20,7 +20,7 @@ for i in range(50): open(f"{DATA}/files/f{i}.txt", "w").write(secrets.token_hex(
 db = sqlite3.connect(f"{DATA}/app.db"); db.execute("create table runs(id integer primary key, v text)")
 db.executemany("insert into runs(v) values (?)", [(secrets.token_hex(8),) for _ in range(500)]); db.commit(); db.close()
 CONF = f"{T}/conf"; os.makedirs(CONF)
-def write_conf(share=real["share"], paths=None):
+def write_conf(share=real["share"], paths=None, slow=False):
     paths = paths or [DATA]
     open(f"{CONF}/{tname}.toml", "w").write(f'''share = "{share}"
 subdir = "{host}/test-{stamp}/restic"
@@ -34,6 +34,7 @@ subset_rotation = 5
 drill_paths = ["{DATA}"]
 lock_wait_seconds = 15
 retry_lock = "30s"
+{"limit_upload_kib = 400" if slow else ""}
 [[sqlite]]
 name = "testapp"
 path = "{DATA}/app.db"
@@ -62,28 +63,33 @@ try:
     n0 = snapshot_count()
 
     # interrupted backup: kill restic hard mid-run
-    write_conf(paths=[DATA, "/usr/share"])
+    BIG = f"{T}/big"; os.makedirs(BIG)
+    with open(f"{BIG}/random.bin", "wb") as f: f.write(os.urandom(200 * 2**20))   # new data: upload takes minutes at 400 KiB/s
+    write_conf(paths=[DATA, BIG], slow=True)
     p = subprocess.Popen(["python3", "-I", PROG, "backup"], env=ENV, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     killed = False
     for _ in range(120):
         time.sleep(1)
-        r = subprocess.run(["pgrep", "-f", f"restic --retry-lock 30s backup"], capture_output=True, text=True)
+        r = subprocess.run(["pgrep", "-f", "restic --retry-lock 30s --limit-upload 400 backup"], capture_output=True, text=True)
         pids = [x for x in r.stdout.split() if x]
         if pids:
-            time.sleep(4); [os.kill(int(x), signal.SIGKILL) for x in pids]; killed = True; break
+            time.sleep(10); [os.kill(int(x), signal.SIGKILL) for x in pids]; killed = True; break
     out = p.communicate(timeout=600)[0]
     t("interrupted backup is reported as FAILED", killed and p.returncode != 0 and "FAILED" in out, out[-300:])
     t("integrity becomes 'unknown' after an interrupted write", state()["integrity"] == "unknown")
-    rc, out = run("prune"); t("prune refused while integrity unknown (nothing deleted)", rc != 0 and "prune refused" in out and snapshot_count() == n0, out[-300:])
+    rc, out_p = run("prune"); t("prune refused while integrity unknown (nothing deleted)", rc != 0 and "prune refused" in out_p and snapshot_count() == n0, out_p[-300:])
     write_conf()
-    rc, out = run("check"); t("check after the interruption: dead own lock removed, check passes", rc == 0 and "stale lock" in out, out[-400:])
+    rc, out = run("check")
+    t("dead own lock of the killed backup removed by the next job; check passes", rc == 0 and "stale lock" in (out_p + out), out[-400:])
 
     # a live restic process holds a lock: it must not be removed; the exclusive job waits (30 s) and fails
     hb_env = dict(ENV); sys.path.insert(0, os.path.join(HERE, "..")); os.environ.update(ENV)
     import importlib; hb = importlib.import_module("hostbackup"); cc = hb.load_conf(tname)
     hb.mount(cc); renv = hb.restic_env(cc)
-    live = subprocess.Popen(["/usr/bin/restic", "backup", "--quiet", "/usr/share"], env=renv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(8)
+    with open(f"{BIG}/random2.bin", "wb") as f: f.write(os.urandom(200 * 2**20))
+    live = subprocess.Popen(["/usr/bin/restic", "backup", "--quiet", "--limit-upload", "400", f"{BIG}/random2.bin"], env=renv,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(10)
     rc, out = run("check")
     t("lock of a LIVE restic is not touched: exclusive job fails after waiting", rc != 0 and "not touched" in out and live.poll() is None, out[-300:])
     live.kill(); live.wait(); hb.umount()
