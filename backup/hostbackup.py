@@ -366,6 +366,7 @@ def preflight(c):
         p = secret(c, f); good = os.path.exists(p) and (os.stat(p).st_mode & 0o077) == 0 and os.stat(p).st_uid == 0
         log(("ok    " if good else "FAIL  ") + f"{p} root-only"); ok &= good
     good = os.path.exists(RESTIC); log(("ok    " if good else "FAIL  ") + f"{RESTIC} " + (subprocess.run([RESTIC, "version"], capture_output=True, text=True).stdout.strip() if good else "missing")); ok &= good
+    good = os.path.exists("/usr/sbin/mount.cifs") or os.path.exists("/sbin/mount.cifs"); log(("ok    " if good else "FAIL  ") + "mount.cifs (cifs-utils)"); ok &= good
     hcok = os.path.exists(secret(c, "healthchecks.json")); log(("ok    " if hcok else "info  ") + "Healthchecks URLs " + ("present" if hcok else "not configured yet"))
     for p in c["paths"]: log(("ok    " if os.path.exists(p) else "FAIL  ") + f"path {p}"); ok &= os.path.exists(p)
     return ok

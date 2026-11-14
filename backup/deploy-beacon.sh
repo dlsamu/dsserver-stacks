@@ -8,7 +8,7 @@ rsync -a --delete --rsync-path="sudo rsync" --exclude __pycache__/ --exclude '*.
       --chown=root:root --chmod=D755,F644 /srv/stacks/backup/ beacon:/srv/hostbackup/
 P=/srv/hostbackup
 case $CMD in
-  install-restic) ssh beacon 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends restic >/dev/null && restic version' ;;
+  install-restic) ssh beacon 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends restic cifs-utils >/dev/null && restic version' ;;
   units-install)  ssh beacon "sudo python3 -I $P/install-units.py $P/hostbackup.py" ;;
   test)           ssh beacon "sudo python3 -I $P/tests/test_hostbackup.py" ;;
   backup|check|fullcheck|prune|drill)

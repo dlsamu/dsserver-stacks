@@ -54,6 +54,7 @@ def snapshot_count():
 try:
     write_conf()
     rc, out = run("init"); t("init disposable repository", rc == 0, out[-300:])
+    if rc != 0: raise SystemExit("init failed: no further scenarios (they would only repeat this failure)")
     rc, out = run("backup"); t("backup ok (incl. SQLite copy + manifest, structure check)", rc == 0 and "snapshot" in out, out[-400:])
     rc, out = run("check"); t("rotating subset check ok -> integrity ok", rc == 0 and state()["integrity"] == "ok", out[-300:])
     rc, out = run("drill"); t("restore drill ok (metadata, DB vs manifest)", rc == 0 and "database testapp" in out, out[-400:])

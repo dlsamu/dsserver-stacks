@@ -3,7 +3,7 @@
 # host/scripts/09-delegated-sudo.sh (always runs the reviewed snapshot).
 #
 #   preflight       read-only: restic, secrets (root-only), paths, Healthchecks config
-#   install-restic  apt-get install restic (Debian package; no service)
+#   install-restic  apt-get install restic + cifs-utils (Debian packages; no services)
 #   cred-install    root-only secrets: SMB login from ~daniel/.config/nas/dsnas-accounts.cred (dsserver-backup=),
 #                   and a new random restic repository password if none exists. Never prints them.
 #   hc-key-install  ~daniel/.healthchecks-api-key (one line, 0600) -> root-only; staged file shredded
@@ -37,8 +37,8 @@ runjob() {
 case $1 in
   preflight) hb preflight ;;
   install-restic)
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends restic >/dev/null
-    ok "$(restic version)" ;;
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends restic cifs-utils >/dev/null
+    ok "$(restic version)"; ok "$(dpkg-query -W -f='cifs-utils ${Version}' cifs-utils)" ;;
   cred-install)
     install -d -m 0700 -o root -g root /etc/dsserver-secrets "$SEC"
     src=/home/daniel/.config/nas/dsnas-accounts.cred
