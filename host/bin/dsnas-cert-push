@@ -7,6 +7,8 @@ Usage (root; run by dsnas-cert-push.service daily, or by host/scripts/18-dsnas-c
   dsnas-cert-push push     import only if dsnas serves a different certificate than Caddy holds (normal run)
   dsnas-cert-push force    re-import Caddy's current certificate even if identical (renewal simulation: exercises
                            login, lookup by description, replace-in-place and verification without reissuing)
+  dsnas-cert-push selftest  account restrictions: DSM API login from dsserver works; File Station API and SMB with
+                           the same account are refused (application privileges denied). Changes nothing.
 
 TLS identity is always verified before the DSM password is sent:
   normal:    dsnas must present a publicly trusted certificate for dsnas.rubusdua.net (system CA store, hostname check)
@@ -150,6 +152,30 @@ def verify(fp_local, wait=0):
         if time.time() > deadline: die(f"verification: {err}")
         time.sleep(5)
 
+def login(mk):
+    pw = open(PWFILE).read().strip()
+    r = call(mk, "/webapi/entry.cgi", {"api": "SYNO.API.Auth", "version": "6", "method": "login", "account": USER,
+             "passwd": pw, "session": "cert-deploy", "format": "sid", "enable_syno_token": "yes"})
+    if not r.get("success"): die(f"DSM login as {USER} failed (code {r.get('error', {}).get('code')})")
+    return r["data"]["sid"], r["data"].get("synotoken", "")
+
+def selftest():
+    import subprocess, tempfile
+    mk = api_conn()
+    sid, tok = login(mk)
+    q = f"_sid={urllib.parse.quote(sid)}&SynoToken={urllib.parse.quote(tok)}"
+    log("ok    DSM API login from dsserver as cert-deploy works (allowed: DSM application, this IP)")
+    r = call(mk, f"/webapi/entry.cgi?{q}", {"api": "SYNO.FileStation.List", "version": "2", "method": "list_share"})
+    if r.get("success"): die("File Station API answered for cert-deploy: application privilege NOT denied")
+    log(f"ok    File Station API refused (code {r.get('error', {}).get('code')})")
+    call(mk, f"/webapi/entry.cgi?{q}", {"api": "SYNO.API.Auth", "version": "6", "method": "logout", "session": "cert-deploy"})
+    with tempfile.TemporaryDirectory() as td:
+        a = os.path.join(td, "a"); fd = os.open(a, os.O_WRONLY | os.O_CREAT, 0o600)
+        os.write(fd, f"username={USER}\npassword={open(PWFILE).read().strip()}\n".encode()); os.close(fd)
+        r = subprocess.run(["smbclient", "-A", a, "-m", "SMB3", f"//{IP}/exchange", "-c", "ls"], capture_output=True, text=True, timeout=60)
+    if r.returncode == 0: die("SMB access worked for cert-deploy: SMB privilege NOT denied")
+    log(f"ok    SMB refused ({(r.stdout + r.stderr).strip().splitlines()[-1][:60]})")
+
 def check():
     leaf, chain, key, fp_local, der = caddy_cert()
     days, _ = not_after_days(der)
@@ -165,4 +191,5 @@ if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) == 2 else ""
     if mode == "check": check()
     elif mode in ("push", "force"): deploy(force=(mode == "force"))
+    elif mode == "selftest": selftest()
     else: print(__doc__); sys.exit(2)

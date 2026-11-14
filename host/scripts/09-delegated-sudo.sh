@@ -208,6 +208,7 @@ COMMANDS=(
     "host/scripts/18-dsnas-cert.sh check"
     "host/scripts/18-dsnas-cert.sh push"
     "host/scripts/18-dsnas-cert.sh force"
+    "host/scripts/18-dsnas-cert.sh selftest"
     "host/scripts/18-dsnas-cert.sh install"
     "host/scripts/18-dsnas-cert.sh status"
 )

@@ -99,3 +99,20 @@ For `dsnas.rubusdua.net`, `replay.rubusdua.net` and `dataserver.rubusdua.net` th
 browser, because those names exist only locally (dsserver and beacon also have public records, so they keep
 working). Chrome's default "use your current service provider" and Firefox's default in Sweden keep using the
 system resolver. Fix per browser if needed: Settings > Privacy > Secure DNS > *current service provider* / off.
+
+## Acceptance (2026-11-14)
+
+| Check | Result |
+|---|---|
+| Beacon resolver: install, `verify`, firewall rule (LAN only) | pass; `test-restart` (restart + kill -9 -> back in 3 s); ~2 MB RAM |
+| dsserver resolver: install, `verify`, firewall (LAN + Docker bridges), sandbox firewall test 32/32 | pass; `test-restart` back in 3 s |
+| `test-dns.sh` against both from a LAN client (dsserver -> Beacon, Beacon -> dsserver with `dnsq.py`) | 70/70 |
+| Independence | dsserver alone 35/35 with Beacon's resolver stopped; Beacon answered 30/30 during dsserver restart + kill |
+| Deco DHCP: Primary 192.168.68.121, Secondary 192.168.68.115 (set by the owner) | phone: Google, Beacon, `dsnas.rubusdua.net` (local-only name) work; StockPulse shows Cloudflare Access |
+| Hosts after lease renewal (14:46) | dsserver and Beacon `resolv.conf` = .121, .115; `getent hosts dsnas.rubusdua.net` ok on both |
+| Docker | fresh container (busybox, default bridge) resolves and reaches the internet with the new servers; container -> host:53 covered by the sandbox test; running containers keep their old resolv.conf until recreated (harmless) |
+| StockPulse security | through both resolvers: Cloudflare addresses, `/` -> 302 to `rubusdua.cloudflareaccess.com`, only `/healthz` 200 |
+| IPv6 | the Deco sends RAs with a default route but **no prefix and no RDNSS/DHCPv6 DNS** (NetworkManager shows no IPv6 DNS on either host): no IPv6 path around the resolvers |
+| Browser DoH | depends on the browser setting (see above); the phone test resolved the local-only name, so it uses the LAN resolvers |
+
+Not tested (by design): host reboots (no reboot approved; units are enabled and `verify` checks it).

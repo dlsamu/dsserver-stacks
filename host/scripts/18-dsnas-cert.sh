@@ -9,6 +9,7 @@
 #   check          read-only: Caddy's vs dsnas's certificate, trust, days left
 #   push           deploy if different (what the timer runs)
 #   force          re-import the current certificate (renewal simulation, no reissue)
+#   selftest       account restrictions: DSM API login works from dsserver; File Station API and SMB refused
 #   install        install + enable dsnas-cert-push.service/.timer (daily), then run it once
 #   status         timer, last runs
 set -euo pipefail
@@ -20,7 +21,7 @@ UNITS="dsnas-cert-push.service dsnas-cert-push.timer"
 fail() { echo "FAILED: $*"; exit 1; }
 ok()   { echo "ok    $*"; }
 [ "$(id -u)" = 0 ] || fail "run as root"
-[ $# -eq 1 ] || { sed -n '2,14p' "$0"; exit 2; }
+[ $# -eq 1 ] || { sed -n '2,15p' "$0"; exit 2; }
 case $1 in
   preflight)
     [ -n "$(find /srv/appdata/proxy/data/caddy/certificates -name 'dsnas.rubusdua.net.crt' 2>/dev/null)" ] \
@@ -36,6 +37,7 @@ case $1 in
   check) "$PUSH" check ;;
   push)  "$PUSH" push ;;
   force) "$PUSH" force ;;
+  selftest) "$PUSH" selftest ;;
   install)
     for u in $UNITS; do install -m 0644 "$ROOT/host/files/etc/systemd/system/$u" "/etc/systemd/system/$u"; done
     systemctl daemon-reload; systemctl enable --now dsnas-cert-push.timer >/dev/null 2>&1
@@ -45,5 +47,5 @@ case $1 in
   status)
     systemctl list-timers dsnas-cert-push.timer --no-pager | head -2
     journalctl -u dsnas-cert-push.service -n 8 --no-pager -o short-iso ;;
-  *) sed -n '2,14p' "$0"; exit 2 ;;
+  *) sed -n '2,15p' "$0"; exit 2 ;;
 esac
