@@ -6,7 +6,7 @@ root 0600, never on the command line). Two consecutive failed runs -> exit 1 -> 
 "Failed systemd service" alert (beacon) -> ntfy. One bad run alone only logs (avoids alerts on a single blip).
 Reachability itself is also covered by Beszel network monitors (ping, TCP 5001, TCP 445).
 """
-import json, os, subprocess, sys, time
+import json, os, socket, subprocess, sys, time
 
 HOST = "192.168.68.112"
 STATE = os.environ.get("STATE_DIRECTORY", "/var/lib/dsnas-health") + "/state.json"
@@ -57,10 +57,26 @@ def check():
     return problems, info
 
 
+def reachable():
+    """True if dsnas answers on DSM (5001) or SMB (445)."""
+    for port in (5001, 445):
+        try:
+            socket.create_connection((HOST, port), timeout=3).close()
+            return True
+        except OSError:
+            pass
+    return False
+
+
 def main():
     try:
         problems, info = check()
     except Exception as e:
+        if not reachable():
+            # dsnas is down or off the network: Beszel's dsnas Status alert reports that. Do not raise a
+            # second alert for the same outage; health checking resumes when dsnas is back.
+            print(f"dsnas unreachable (no answer on tcp 5001/445): not counted, Beszel 'dsnas' Status alerts on this")
+            return
         problems, info = [f"cannot read dsnas health: {e}"], {}
     try:
         prev = json.load(open(STATE)).get("consecutive_failures", 0)
