@@ -17,13 +17,14 @@ SHARES = {  # name: (checksums, hidden, snapshot hour:min, retention advPolicyTy
     "server-backup": (True,  True,  (3, 30), 13, 14, 8, 0),
     "exchange":      (False, False, None,    None, 0, 0, 0),
 }
+# cert-deploy (dedicated admin for certificate import, docs/internal-https.md) is explicitly denied every share.
 PERMS = {
-    "photos":        {"@administrators": "RW", "@family": "RW"},
-    "family":        {"@administrators": "RW", "@family": "RW"},
-    "media":         {"@administrators": "RW", "@family": "RO", "media": "RO"},
-    "replay-backup": {"@administrators": "RW", "replay": "RW"},
-    "server-backup": {"@administrators": "RW", "dsserver-backup": "RW"},
-    "exchange":      {"@administrators": "RW", "@family": "RW"},
+    "photos":        {"cert-deploy": "NA", "@administrators": "RW", "@family": "RW"},
+    "family":        {"cert-deploy": "NA", "@administrators": "RW", "@family": "RW"},
+    "media":         {"cert-deploy": "NA", "@administrators": "RW", "@family": "RO", "media": "RO"},
+    "replay-backup": {"cert-deploy": "NA", "@administrators": "RW", "replay": "RW"},
+    "server-backup": {"cert-deploy": "NA", "@administrators": "RW", "dsserver-backup": "RW"},
+    "exchange":      {"cert-deploy": "NA", "@administrators": "RW", "@family": "RW"},
 }
 # SMB matrix: account -> share -> expected ("RW" | "RO" | "NA")
 SMB = {

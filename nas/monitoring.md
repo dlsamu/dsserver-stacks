@@ -9,7 +9,8 @@ dsnas has two independent collectors, both reporting to Beacon:
    Configuration (set in the install wizard): `KEY=<hub public key>`, `EXTRA_FILESYSTEMS=/volume1`, no SMART devices.
    Beszel system `dsnas` (id `zsr6hzrri2il39f`). Updates: Package Center (Community); keep the agent version in step
    with the hub (`beacon/scripts/update-beszel.sh`).
-2. **SNMPv3 health check on Beacon** (`beacon/nasmon/`, `dsnas-health.timer`, every 5 min, read-only user,
+2. **SNMPv3 health check on Beacon** (`beacon/nasmon/`, `dsnas-health.timer`, every 5 min, `Type=exec` since
+   2026-11-14 so Beszel sees its failures (a failed `oneshot` was invisible), read-only user,
    Synology MIB). Owns everything storage/disk-specific. Only SNMP sees SMART-derived disk health, so no root
    privileges are needed for the agent.
 
@@ -28,6 +29,7 @@ Port 45876 is open to the LAN by dsnas's firewall (allow 192.168.68.0/24); only 
 | CPU temperature | agent (`cpu-thermal`) | yes | via SNMP: system > 65 C |
 | Storage pool + volume status (degraded/crashed) | SNMP | no (journal + state file on Beacon) | **SystemdFailed** on beacon (2 consecutive bad runs) |
 | Per-drive health status, temperature, bad sectors | SNMP | no | same (drive > 55 C, bad sectors > 0, health != normal) |
+| HTTPS certificate of `dsnas.rubusdua.net` (trust, hostname, < 21 days) | Beacon `cert-expiry.timer` (6 h) | no | SystemdFailed (beacon) |
 | SMB service (tcp 445) | Beszel network monitor run by Beacon's agent | yes (under system `beacon`) | NetworkMonitorLoss (beacon): > 20 % loss over 1 h |
 | SMART *test* results/schedule | not available via SNMP or the unprivileged agent | no | no (DSM's own notification; see below) |
 | Snapshot success/age | `nas/scripts/dsnas-check.py` (manual, needs a DSM admin login) | no | no (pending) |
@@ -39,7 +41,8 @@ the ICMP and TCP 5001 monitors that duplicated the Status alert were removed. Th
 check (it alerts later, on 1-hour loss, and also covers "NAS up but SMB down").
 
 ## Pending
-- SMART test and scrubbing schedules (owner, in Storage Manager) and DSM's own notifications for their results:
+- SMART tests (weekly quick, monthly extended per drive) and monthly data scrubbing were scheduled by the owner on
+  2026-11-14 (first runs next month). Their *results* are not monitored automatically yet (roadmap NM1); options:
   DSM can e-mail (Gmail as SMTP is not used in this setup) or push via a webhook; an ntfy webhook needs the topic,
   which lives only in Beszel's settings.
 - Snapshot freshness and future backup-job freshness as an alerting check (needs a least-privilege way to read

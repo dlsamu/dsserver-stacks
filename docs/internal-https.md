@@ -82,3 +82,57 @@ replaces a dsnas-only admin password on a hardened host with a zone-wide DNS tok
 and root automation to DSM. Mitigations for the account: random 32-character password, root-only on dsserver,
 used only by the delegated timer, DSM applications other than DSM denied, LAN-only by firewall, a login from any
 other host would show in DSM's connection log; rotate on any suspicion.
+
+## Implementation (live 2026-11-14)
+
+| Part | Where | State |
+|---|---|---|
+| DSM customized domain `dsnas.rubusdua.net` (no reverse proxy) | dsnas `SYNO.Core.Web.DSM` `enable_custom_domain=true`, `fqdn=dsnas.rubusdua.net` | reversible test passed, kept |
+| Certificate issuance/renewal (Let's Encrypt, DNS-01) | dsserver Caddy, `proxy/Caddyfile` site `dsnas.rubusdua.net` marked `# cert-only` (`dns-ensure` never creates a public record for it; requests reaching dsserver for that name get 421) | issued 2026-11-14, valid to 2027-02-12; Caddy renews ~30 days before expiry |
+| Deployment | `host/bin/dsnas-cert-push` via `host/scripts/18-dsnas-cert.sh` (delegated), timer `dsnas-cert-push.timer` daily 04:40 (+0-20 min) | first deployment, no-op run and forced re-import (renewal simulation) passed |
+| DSM certificate entry | id `Ys2ldQ`, description `dsnas.rubusdua.net (Let's Encrypt via dsserver Caddy DNS-01)`, system default, bound to *DSM Desktop Service* and *dsnas.rubusdua.net* (binding set once by the owner in DSM; in-place replacement keeps it) | verified after the forced re-import |
+| Deploy account `cert-deploy` | administrators group (required by DSM); password 32 chars in `/etc/dsserver-secrets/dsnas-cert-deploy.pw` (root 0600); application privileges: DSM allowed **only from 192.168.68.115**, AFP/FTP/rsync/SFTP/File Station/Universal Search/SMB denied; **No access** on every share | `18 selftest`: DSM API login from dsserver ok, File Station refused (160), SMB refused |
+| Expiry monitoring (independent of dsserver) | Beacon `beacon/certwatch/cert_expiry.py`, `cert-expiry.timer` every 6 h, checks dsnas/dsserver/beacon names by LAN address with full chain + hostname validation, fails at < 21 days or untrusted -> Beszel SystemdFailed (beacon) -> ntfy | first run: all three trusted, 87-90 days |
+
+TLS identity during deployment: before any password is sent, dsnas must present a publicly trusted certificate for
+`dsnas.rubusdua.net` (normal case). Only while it still served the factory self-signed certificate was a bootstrap
+allowed, and only with that certificate's SHA-256 pinned in the code (recorded independently from dsserver and
+Beacon). Verification is never disabled. MFA: dsnas's global 2FA policy is "none" and was not touched; `cert-deploy`
+has no 2FA (automation). If admin 2FA enforcement is ever switched on, `cert-deploy` login fails (error 403) and the
+alert fires: then exempt the account or move to device-token login.
+
+## Operations
+```bash
+S=/usr/local/lib/dsserver-admin/host/scripts
+sudo -n $S/18-dsnas-cert.sh check      # Caddy vs dsnas certificate, trust, days left (read-only)
+sudo -n $S/18-dsnas-cert.sh push       # what the timer does: deploy only if different
+sudo -n $S/18-dsnas-cert.sh force      # re-import the same certificate (renewal drill, no reissue)
+sudo -n $S/18-dsnas-cert.sh selftest   # account restrictions
+sudo -n $S/18-dsnas-cert.sh status     # timer + last runs
+ssh beacon 'journalctl -u cert-expiry -n 5 -o cat'
+```
+
+## Dependencies
+- **Normal use** of `https://dsnas.rubusdua.net/`: dsnas + one of the two local resolvers. Not dsserver, not the internet.
+- **Renewal**: dsserver (Caddy + timer), Cloudflare API (DNS-01), Let's Encrypt. If any is down, the current
+  certificate keeps working; Caddy retries; dsnas still has ~30 days when renewal starts; Beacon alerts at 21 days.
+- `https://dsnas.rubusdua.net:5001/` answers 404 by design once the customized domain is set: use the name without a port.
+
+## Recovery
+1. Name or certificate broken: `https://192.168.68.112:5001/` (DSM login always available; browser shows a name
+   mismatch warning because the certificate is issued to the name - accept it once) or `http://192.168.68.112:5000/`.
+2. Deployed a bad certificate: DSM > Control Panel > Security > Certificate > Settings: bind *DSM Desktop Service*
+   and *dsnas.rubusdua.net* back to the self-signed `synology` certificate (kept, never deleted).
+3. Disable the customized domain: DSM > Login Portal > DSM > uncheck Customized domain (DSM stays on 5000/5001).
+4. Rotate the deploy password: `18 gen-password` only creates a missing file, so `sudo shred -u
+   /etc/dsserver-secrets/dsnas-cert-deploy.pw`, `18 gen-password`, set the new value in DSM (User > cert-deploy),
+   `18 selftest`.
+5. Stop the automation: `sudo systemctl disable --now dsnas-cert-push.timer` (manual, as root); delete the DSM
+   account `cert-deploy` in DSM.
+
+## Trade-offs accepted
+- A DSM administrator credential exists on dsserver (root-only, used by one timer, DSM login only from dsserver,
+  no file or share access). Compromise of root on dsserver = admin on dsnas; root on dsserver already implies the
+  Cloudflare DNS token and all dsserver data.
+- The name `dsnas.rubusdua.net` appears in public Certificate Transparency logs (the address does not).
+- Caddy on dsserver answers `dsnas.rubusdua.net` with 421 if a client is pointed at dsserver by mistake.

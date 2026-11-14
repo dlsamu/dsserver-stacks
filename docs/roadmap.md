@@ -40,7 +40,8 @@ The Raspberry Pi (dsoffice) hands its kept responsibilities to dsserver. Milesto
 | N1 | Network monitoring on Beacon: 10 Beszel checks + netwatch outage history/classification (beacon/README.md) | Live 2026-11-11 |
 
 | NAS | **dsnas** (DS223j): family data + media migrated and three-way SHA-256 verified, shares/accounts/snapshots, LAN-only ([nas/README.md](../nas/README.md)); Beszel agent + SNMPv3 health ([nas/monitoring.md](../nas/monitoring.md)) | Done 2026-11-14; Replay switch pending (handled on Replay) |
-| D1 | **Local DNS:** dnsmasq resolvers on Beacon + dsserver, identical records, LAN-only ([dns/README.md](../dns/README.md)) | Both live and verified 2026-11-14; Deco DHCP DNS change by owner, then client verification |
+| D1 | **Local DNS:** dnsmasq resolvers on Beacon + dsserver, identical records, LAN-only ([dns/README.md](../dns/README.md)) | Done 2026-11-14: live on both, Deco DHCP hands them out, client/Docker/IPv6/StockPulse acceptance passed |
+| H2 | **Trusted HTTPS for dsnas** (`https://dsnas.rubusdua.net`, served by DSM itself; Caddy DNS-01 + `dsnas-cert-push` timer; Beacon expiry check) ([internal-https.md](internal-https.md)) | Done 2026-11-14 |
 
 ## Backlog (agreed 2026-11-14; order = priority, foundations first)
 Priorities: reliability, security, simplicity, efficiency, features. Items stay here until done or explicitly dropped,
