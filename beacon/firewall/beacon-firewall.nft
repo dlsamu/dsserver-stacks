@@ -1,6 +1,6 @@
 #!/usr/sbin/nft -f
 # Beacon host firewall (/srv/stacks/beacon/firewall). Replaces only this table; never `flush ruleset`
-# (Docker keeps its own tables). Incoming from the home LAN: SSH, HTTPS (443, Caddy -> dashboard) and mDNS.
+# (Docker keeps its own tables). Incoming from the home LAN: SSH, HTTPS (443, Caddy -> dashboard), DNS (53) and mDNS.
 # Beszel hub 8090 (plain HTTP): only the dsserver agent (192.168.68.115); Beacon's own agent and Caddy use loopback.
 # HTTPS cutover 2026-11-11 (docs/https.md). Outgoing is not filtered. Containers here use host or no networking, so no forward rules are needed.
 table inet beacon_fw
@@ -21,6 +21,8 @@ table inet beacon_fw {
         ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept
         # Access scope: home LAN
         ip saddr @lan4 tcp dport { 22, 443 } accept
+        # Local DNS resolver (dnsmasq, /srv/stacks/dns) for the home LAN, 2026-11-14
+        ip saddr @lan4 meta l4proto { tcp, udp } th dport 53 accept
         # Beszel agent WebSocket from dsserver; browsers use https://beacon.rubusdua.net
         ip saddr 192.168.68.115 tcp dport 8090 accept
         ip saddr @lan4 udp dport 5353 accept

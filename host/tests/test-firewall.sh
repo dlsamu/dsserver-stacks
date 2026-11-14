@@ -61,6 +61,8 @@ L socat TCP-LISTEN:9999,fork,reuseaddr SYSTEM:'echo unlisted'
 L socat -u UDP-RECV:68 OPEN:/run/fwtest/dhcp,creat,append
 L socat -u UDP-RECV:5353 OPEN:/run/fwtest/mdns,creat,append
 L socat -u UDP-RECV:4444 OPEN:/run/fwtest/udp4444,creat,append
+L socat TCP-LISTEN:53,fork,reuseaddr SYSTEM:'echo dns'
+L socat -u UDP-RECV:53 OPEN:/run/fwtest/dns,creat,append
 L nsenter --net=/run/netns/ctr socat TCP-LISTEN:80,fork,reuseaddr SYSTEM:'echo web'
 L nsenter --net=/run/netns/lan socat TCP-LISTEN:8000,fork,reuseaddr SYSTEM:'echo outside'
 sleep 2   # listeners up, IPv6 DAD done
@@ -88,6 +90,15 @@ in_lan socat -u - UDP-SENDTO:192.168.68.115:5353 <<<x
 t "LAN mDNS udp 5353"                  ok      udp_sent mdns
 in_lan socat -u - UDP-SENDTO:192.168.68.115:4444 <<<x
 t "LAN unlisted udp 4444"              blocked udp_sent udp4444
+t "LAN -> host DNS tcp 53"             ok      in_lan nc -z -w 2 192.168.68.115 53
+t "non-LAN -> host DNS tcp 53"         blocked in_lan nc -z -w 2 -s 203.0.113.9 192.168.68.115 53
+in_lan socat -u - UDP-SENDTO:192.168.68.115:53 <<<x
+t "LAN -> host DNS udp 53"             ok      udp_sent dns
+t "container -> host DNS tcp 53 (bridge address)" ok in_ctr nc -z -w 2 172.17.0.1 53
+t "container -> host DNS tcp 53 (LAN address)"    ok in_ctr nc -z -w 2 192.168.68.115 53
+: > /run/fwtest/dns
+in_ctr socat -u - UDP-SENDTO:172.17.0.1:53 <<<x
+t "container -> host DNS udp 53"       ok      udp_sent dns
 
 echo "=== Docker published port (default: not in any scope)"
 t "LAN -> published 18080"             blocked in_lan nc -z -w 2 192.168.68.115 18080

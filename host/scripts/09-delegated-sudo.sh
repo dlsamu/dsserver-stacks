@@ -73,8 +73,13 @@ FILES=(
     tunnel/render.py
     tunnel/test_render.py
     tunnel/cf.py
+    dns/local-dns.sh
+    dns/dnsq.py
+    dns/dnsmasq.conf
+    dns/records.conf
+    dns/local-dns.service
 )
-EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh host/scripts/14-https-proxy.sh host/scripts/15-stockpulse.sh host/scripts/16-tunnel.sh "
+EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh host/scripts/14-https-proxy.sh host/scripts/15-stockpulse.sh host/scripts/16-tunnel.sh dns/local-dns.sh dns/dnsq.py "
 
 # Exact command lines daniel may run as root without a password.
 # A1: everything except 'rollback' (rollback stays a manual, deliberate step).
@@ -187,6 +192,12 @@ COMMANDS=(
     "host/scripts/16-tunnel.sh down"
     "host/scripts/16-tunnel.sh teardown"
     "host/scripts/16-tunnel.sh token-remove"
+    # Local DNS resolver (dns/, 2026-11-14). 'rollback' stays a manual step.
+    "dns/local-dns.sh preflight"
+    "dns/local-dns.sh install"
+    "dns/local-dns.sh verify"
+    "dns/local-dns.sh status"
+    "dns/local-dns.sh test-restart"
 )
 
 fail() { echo; echo "FAILED: $*"; echo "Stopped."; exit 1; }

@@ -1,0 +1,16 @@
+[Unit]
+Description=dsnas (Synology) health check over SNMPv3 (alerts via Beszel SystemdFailed)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /srv/beacon/nasmon/dsnas_health.py
+StateDirectory=dsnas-health
+Environment=SNMP_PERSISTENT_DIR=/var/lib/dsnas-health
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadOnlyPaths=/etc/dsnas-monitor
+TimeoutStartSec=120

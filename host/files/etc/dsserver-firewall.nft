@@ -22,6 +22,7 @@ table inet dsserver_fw {
         type inet_service; flags interval
         elements = {
             22 comment "ssh (host) 2026-11-10",
+            53 comment "local DNS resolver (dnsmasq, dns/) 2026-11-14",
             443 comment "HTTPS proxy (Caddy, proxy/) 2026-11-11",
             1714-1764 comment "KDE Connect (host) 2026-11-10",
         }
@@ -29,6 +30,7 @@ table inet dsserver_fw {
     set lan_udp {
         type inet_service; flags interval
         elements = {
+            53 comment "local DNS resolver (dnsmasq, dns/) 2026-11-14",
             1714-1764 comment "KDE Connect (host) 2026-11-10",
             5353 comment "mDNS dsserver.local (host) 2026-11-10",
         }
@@ -68,6 +70,10 @@ table inet dsserver_fw {
         # DHCP replies (v4 from the router; v6 only from link-local servers).
         udp sport 67 udp dport 68 accept
         ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept
+
+        # Local DNS resolver for containers on this host: Docker gives containers the host's resolvers
+        # (/etc/resolv.conf); once the LAN DHCP hands out 192.168.68.115, their queries arrive from the bridges.
+        iifname { "docker0", "br-*" } meta l4proto { tcp, udp } th dport 53 accept
 
         # Access scopes for services running on the host.
         jump scopes
