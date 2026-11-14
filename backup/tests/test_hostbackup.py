@@ -33,6 +33,7 @@ retention = {{daily = 14, weekly = 8, monthly = 12}}
 subset_rotation = 5
 drill_paths = ["{DATA}"]
 lock_wait_seconds = 15
+retry_lock = "30s"
 [[sqlite]]
 name = "testapp"
 path = "{DATA}/app.db"
@@ -42,7 +43,7 @@ backup = "*-*-* 02:15"
 ENV = dict(os.environ, HOSTBACKUP_STATE=f"{T}/state", HOSTBACKUP_RUN=f"{T}/run", HOSTBACKUP_LOCK=f"{T}/run/lock",
            HOSTBACKUP_CONF=CONF, HOSTBACKUP_HOST=tname)
 results = []
-def run(*a, env=None, timeout=900):
+def run(*a, env=None, timeout=1500):
     r = subprocess.run(["python3", "-I", PROG, *a], env=env or ENV, capture_output=True, text=True, timeout=timeout)
     return r.returncode, r.stdout + r.stderr
 def state(): return json.load(open(f"{T}/state/state.json"))
@@ -66,7 +67,7 @@ try:
     killed = False
     for _ in range(120):
         time.sleep(1)
-        r = subprocess.run(["pgrep", "-f", f"restic --retry-lock 15m backup"], capture_output=True, text=True)
+        r = subprocess.run(["pgrep", "-f", f"restic --retry-lock 30s backup"], capture_output=True, text=True)
         pids = [x for x in r.stdout.split() if x]
         if pids:
             time.sleep(4); [os.kill(int(x), signal.SIGKILL) for x in pids]; killed = True; break
@@ -75,7 +76,18 @@ try:
     t("integrity becomes 'unknown' after an interrupted write", state()["integrity"] == "unknown")
     rc, out = run("prune"); t("prune refused while integrity unknown (nothing deleted)", rc != 0 and "prune refused" in out and snapshot_count() == n0, out[-300:])
     write_conf()
-    rc, out = run("check"); t("check after the interruption passes (stale lock of a dead process is not an error)", rc == 0, out[-400:])
+    rc, out = run("check"); t("check after the interruption: dead own lock removed, check passes", rc == 0 and "stale lock" in out, out[-400:])
+
+    # a live restic process holds a lock: it must not be removed; the exclusive job waits (30 s) and fails
+    hb_env = dict(ENV); sys.path.insert(0, os.path.join(HERE, "..")); os.environ.update(ENV)
+    import importlib; hb = importlib.import_module("hostbackup"); cc = hb.load_conf(tname)
+    hb.mount(cc); renv = hb.restic_env(cc)
+    live = subprocess.Popen(["/usr/bin/restic", "backup", "--quiet", "/usr/share"], env=renv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(8)
+    rc, out = run("check")
+    t("lock of a LIVE restic is not touched: exclusive job fails after waiting", rc != 0 and "not touched" in out and live.poll() is None, out[-300:])
+    live.kill(); live.wait(); hb.umount()
+    rc, out = run("check"); t("after that process died: its lock is removed, check passes", rc == 0 and "stale lock" in out, out[-300:])
 
     # incomplete snapshot (restic exit 3) via a stub that returns 3 for `backup`
     stub = f"{T}/restic-stub"

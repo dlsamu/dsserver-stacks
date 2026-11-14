@@ -16,7 +16,8 @@ Safety rules enforced here:
   - every repository operation first verifies: mounted CIFS from the expected //server/share, the destination marker
     (written at init) and the repository id; otherwise abort. There is no local fallback path.
   - restic exit 3 (incomplete snapshot) and any non-zero exit are failures.
-  - never `restic unlock`, never `restic repair`; lock contention waits (--retry-lock) and then fails.
+  - never `restic repair`; locks are removed only when ALL are provably dead (this host, PID no longer restic);
+    any other lock (other host, live process) makes the job wait (--retry-lock) and then fail.
   - integrity state: unknown (initial / after an interrupted write) -> ok (after a passing data check) ->
     compromised (any failing check). Prune runs only when "ok" and the last data check passed within 9 days."""
 import datetime, fcntl, hashlib, json, os, shutil, sqlite3, subprocess, sys, time, tomllib, urllib.request, uuid
@@ -60,7 +61,7 @@ def restic_env(c):
 def restic(c, *args, check=True, capture=False, timeout=None):
     """Run restic against the VERIFIED repository. Returns CompletedProcess. Non-zero exit -> Fail (if check)."""
     verify_destination(c)
-    cmd = [RESTIC, "--retry-lock", "15m", *args]
+    cmd = [RESTIC, "--retry-lock", c.get("retry_lock", "15m"), *args]
     r = subprocess.run(cmd, env=restic_env(c), capture_output=capture, text=True, timeout=timeout)
     if check and r.returncode != 0:
         raise Fail(f"restic {args[0]} exit {r.returncode}" + (" (incomplete snapshot: some files could not be read)" if r.returncode == 3 else "")
@@ -331,6 +332,29 @@ def app_check(app, target):
     if r.returncode != 0: raise Fail(f"StockPulse isolated DB check failed: {r.stderr.strip()[-300:]}")
     log(f"ok    StockPulse ({img}, no network, no key): {r.stdout.strip()}")
 
+def clear_dead_own_locks(c, st):
+    """restic does not ignore the lock of a crashed restic (rc 11 for exclusive operations). Remove locks ONLY when
+    every existing lock was created by this host and its PID no longer runs restic (dead or reused): such a lock
+    cannot belong to an active operation. Locks of other hosts or of a live restic are never touched."""
+    r = subprocess.run([RESTIC, "--no-lock", "list", "locks"], env=restic_env(c), capture_output=True, text=True, timeout=120)
+    ids = r.stdout.split() if r.returncode == 0 else []
+    if not ids: return
+    me = os.uname().nodename
+    for i in ids:
+        lk = json.loads(subprocess.run([RESTIC, "--no-lock", "cat", "lock", i], env=restic_env(c), capture_output=True, text=True, timeout=60).stdout or "{}")
+        pid = lk.get("pid"); comm = ""
+        try: comm = open(f"/proc/{pid}/comm").read().strip()
+        except Exception: pass
+        if lk.get("hostname") != me or comm == "restic":
+            log(f"info  lock {i[:8]} held by {lk.get('hostname')} pid {pid} ({'running' if comm else 'remote'}): not touched")
+            return
+    verify_destination(c)
+    u = subprocess.run([RESTIC, "unlock"], env=restic_env(c), capture_output=True, text=True, timeout=120)
+    if u.returncode != 0: raise Fail(f"restic unlock (stale own locks) failed: {u.stderr.strip()[-200:]}")
+    msg = f"removed {len(ids)} stale lock(s) of crashed restic process(es) on this host"
+    log("info  " + msg); st.setdefault("events", []).append(f"{now().isoformat(timespec='seconds')} {msg}")
+    st["events"] = st["events"][-20:]
+
 # ------------------------------------------------------------------ init / status
 def cmd_init(c):
     for f in ("restic.pw", "smb.cred"):
@@ -390,6 +414,7 @@ def run_job(c, job):
     out = []
     try:
         mount(c); verify_destination(c)
+        clear_dead_own_locks(c, st)
         JOBS[job](c, st)
         rec.update(result="ok")
     except (Fail, subprocess.TimeoutExpired, OSError) as e:
