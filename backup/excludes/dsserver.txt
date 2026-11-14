@@ -1,0 +1,37 @@
+# dsserver exclusions (backup/README.md "What is backed up").
+# Live StockPulse database: the consistent copy + manifest is in /var/lib/hostbackup/staging.
+/srv/appdata/stockpulse/data/history.db
+/srv/appdata/stockpulse/data/history.db-wal
+/srv/appdata/stockpulse/data/history.db-shm
+/srv/appdata/stockpulse/data/history.db-journal
+# Disposable StockPulse test environment.
+/srv/appdata/stockpulse-test
+# Temporary/obsolete credentials and migration artifacts (amendment 10).
+/home/daniel/.config/nas
+/home/daniel/nas-migration
+/home/daniel/beacon-backups
+/home/daniel/Downloads/dsserver-migration-v2.zip
+/home/daniel/Downloads/stockpulse-debug-*.zip
+# Clipboard history can contain copied passwords.
+/home/daniel/.local/share/klipper
+# Claude Code: program versions, login token and session transcripts (memory notes stay included).
+/home/daniel/.local/share/claude
+/home/daniel/.claude/.credentials.json
+/home/daniel/.claude/projects/*/*.jsonl
+/home/daniel/.claude/projects/*/*-*-*-*-*
+# Build artifacts.
+/home/daniel/Desktop/*.apk
+# /home/axel, if included (owner + Axel's agreement): dependencies and build output.
+/home/axel/**/node_modules
+/home/axel/**/.venv
+/home/axel/**/venv
+/home/axel/**/target
+/home/axel/**/build
+/home/axel/**/dist
+/home/axel/.npm
+/home/axel/.gradle
+/home/axel/.m2
+/home/axel/.cargo/registry
+/home/axel/.rustup
+/home/axel/.nuget
+/home/axel/.vscode-server

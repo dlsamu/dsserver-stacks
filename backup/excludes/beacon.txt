@@ -1,0 +1,10 @@
+# Beacon exclusions. Live databases: consistent copies + manifests are in /var/lib/hostbackup/staging.
+/srv/appdata/beszel/data.db
+/srv/appdata/beszel/data.db-wal
+/srv/appdata/beszel/data.db-shm
+/srv/appdata/beszel/auxiliary.db
+/srv/appdata/beszel/auxiliary.db-wal
+/srv/appdata/beszel/auxiliary.db-shm
+/srv/appdata/netwatch/netwatch.db
+/srv/appdata/netwatch/netwatch.db-wal
+/srv/appdata/netwatch/netwatch.db-shm

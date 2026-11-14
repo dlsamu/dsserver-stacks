@@ -1,0 +1,30 @@
+# hostbackup configuration for Beacon (backup/README.md)
+share = "beacon-backup"                 # //192.168.68.112/beacon-backup, account beacon-backup
+subdir = "beacon/restic"
+secrets = "/etc/beacon-secrets/backup"
+paths = ["/etc", "/srv/beacon", "/srv/local-dns", "/srv/appdata", "/home", "/root"]
+include_axel = true                     # no axel user on Beacon; nothing to exclude
+git_repos = []
+retention = {daily = 14, weekly = 8, monthly = 12}
+subset_rotation = 5
+drill_paths = ["/etc", "/srv/beacon"]
+lock_wait_seconds = 14400
+
+[[sqlite]]
+name = "beszel-data"
+path = "/srv/appdata/beszel/data.db"
+
+[[sqlite]]
+name = "beszel-auxiliary"
+path = "/srv/appdata/beszel/auxiliary.db"
+
+[[sqlite]]
+name = "netwatch"
+path = "/srv/appdata/netwatch/netwatch.db"
+
+[schedule]
+backup    = "*-*-* 02:45"
+check     = "Sun *-*-* 04:20"
+fullcheck = "*-*-01 05:00"
+prune     = "Sat *-*-* 04:20"
+drill     = "*-*-15 05:15"

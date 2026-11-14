@@ -1,0 +1,30 @@
+# hostbackup configuration for dsserver (backup/README.md)
+share = "server-backup"                 # //192.168.68.112/server-backup, account dsserver-backup
+subdir = "dsserver/restic"              # repository = <share>/dsserver/restic ; marker = <share>/dsserver/DESTINATION.json
+secrets = "/etc/dsserver-secrets/backup" # restic.pw, smb.cred, destination-id, repo-id, healthchecks.json (root 0600)
+paths = ["/etc", "/srv/stacks", "/srv/appdata", "/usr/local/lib/dsserver-admin", "/home", "/root"]
+include_axel = false                    # owner: include /home/axel only with Axel's agreement (excludes/no-axel.txt)
+git_repos = ["/srv/stacks"]
+retention = {daily = 14, weekly = 8, monthly = 12}
+subset_rotation = 5                     # weekly check reads 1/5 of the data, rotating by ISO week: everything every 5 weeks
+drill_paths = ["/etc", "/srv/stacks", "/srv/appdata/stockpulse/reports"]
+lock_wait_seconds = 14400
+
+[[sqlite]]
+name = "stockpulse-history"
+path = "/srv/appdata/stockpulse/data/history.db"
+
+[[app_checks]]
+type = "stockpulse"
+container = "stockpulse-web"
+db = "stockpulse-history"
+uid = 10010
+
+# systemd OnCalendar per job (local time). Jobs are serialized by a lock, so overlaps only delay; dsnas snapshots of
+# server-backup run at 05:45 (restic repositories stay valid at any point in time, see README "Consistency").
+[schedule]
+backup    = "*-*-* 02:15"
+check     = "Sun *-*-* 04:00"
+fullcheck = "*-*-01 04:30"
+prune     = "Sat *-*-* 04:00"
+drill     = "*-*-15 04:45"

@@ -82,8 +82,19 @@ FILES=(
     host/bin/dsnas-cert-push
     host/files/etc/systemd/system/dsnas-cert-push.service
     host/files/etc/systemd/system/dsnas-cert-push.timer
+    host/scripts/19-backup.sh
+    backup/hostbackup.py
+    backup/install-units.py
+    backup/hc_setup.py
+    backup/hosts/dsserver.toml
+    backup/hosts/beacon.toml
+    backup/excludes/common.txt
+    backup/excludes/dsserver.txt
+    backup/excludes/beacon.txt
+    backup/excludes/no-axel.txt
+    backup/tests/test_hostbackup.py
 )
-EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh host/scripts/14-https-proxy.sh host/scripts/15-stockpulse.sh host/scripts/16-tunnel.sh dns/local-dns.sh dns/dnsq.py host/scripts/18-dsnas-cert.sh host/bin/dsnas-cert-push "
+EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh host/scripts/14-https-proxy.sh host/scripts/15-stockpulse.sh host/scripts/16-tunnel.sh dns/local-dns.sh dns/dnsq.py host/scripts/18-dsnas-cert.sh host/bin/dsnas-cert-push host/scripts/19-backup.sh backup/hostbackup.py backup/install-units.py backup/hc_setup.py backup/tests/test_hostbackup.py "
 
 # Exact command lines daniel may run as root without a password.
 # A1: everything except 'rollback' (rollback stays a manual, deliberate step).
@@ -209,6 +220,25 @@ COMMANDS=(
     "host/scripts/18-dsnas-cert.sh push"
     "host/scripts/18-dsnas-cert.sh force"
     "host/scripts/18-dsnas-cert.sh selftest"
+    # Off-device backups (backup/, approved 2026-11-14). No repository deletion or repair commands exist.
+    "host/scripts/19-backup.sh preflight"
+    "host/scripts/19-backup.sh install-restic"
+    "host/scripts/19-backup.sh cred-install"
+    "host/scripts/19-backup.sh hc-key-install"
+    "host/scripts/19-backup.sh hc-sync"
+    "host/scripts/19-backup.sh hc-test-missed"
+    "host/scripts/19-backup.sh hc-key-remove"
+    "host/scripts/19-backup.sh init"
+    "host/scripts/19-backup.sh units-install"
+    "host/scripts/19-backup.sh run-backup"
+    "host/scripts/19-backup.sh run-check"
+    "host/scripts/19-backup.sh run-fullcheck"
+    "host/scripts/19-backup.sh run-prune"
+    "host/scripts/19-backup.sh run-drill"
+    "host/scripts/19-backup.sh test"
+    "host/scripts/19-backup.sh status"
+    "host/scripts/19-backup.sh snapshots"
+    "host/scripts/19-backup.sh mount-test"
     "host/scripts/18-dsnas-cert.sh install"
     "host/scripts/18-dsnas-cert.sh status"
 )

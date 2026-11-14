@@ -1,0 +1,8 @@
+# Excluded on every host (restic --exclude-file). Caches, trash, our own scratch space.
+**/.cache
+**/__pycache__
+**/.local/share/Trash
+/var/lib/hostbackup/cache
+/var/lib/hostbackup/drill
+# The repository password inside its own repository is useless and only widens exposure.
+**/backup/restic.pw
