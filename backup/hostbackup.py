@@ -170,8 +170,10 @@ def stage(c):
     sel = subprocess.run(["dpkg", "--get-selections"], capture_output=True, text=True).stdout
     open(f"{STAGING}/dpkg-selections.txt", "w").write(sel); sysman["dpkg_selections_sha256"] = hashlib.sha256(sel.encode()).hexdigest()
     for g in c.get("git_repos", []):
-        r = subprocess.run(["git", "-C", g, "rev-parse", "HEAD"], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", "HOME": "/root", "GIT_CONFIG_GLOBAL": "/dev/null"})
-        sysman["git"][g] = r.stdout.strip() if r.returncode == 0 else None
+        r = subprocess.run(["git", "-c", f"safe.directory={g}", "-C", g, "rev-parse", "HEAD"], capture_output=True, text=True,
+                           env={"PATH": "/usr/bin:/bin", "HOME": "/root", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"})
+        if r.returncode != 0: raise Fail(f"git HEAD of {g} unreadable: {r.stderr.strip()[:200]}")
+        sysman["git"][g] = r.stdout.strip()
     if shutil.which("docker"):
         r = subprocess.run(["docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}"], capture_output=True, text=True)
         sysman["docker_images"] = sorted(r.stdout.split("\n")) if r.returncode == 0 else []
@@ -289,8 +291,10 @@ def job_drill(c, st):
             log(f"ok    database {m['name']}: sha256, integrity_check and row counts of {len(counts)} tables match the manifest")
         # 3) git repositories
         sysman = json.load(open(f"{target}{STAGING}/system-manifest.json"))
-        for g, head in sysman.get("git", {}).items():
-            if not head or not os.path.isdir(target + g): continue
+        for g in c.get("git_repos", []):
+            head = sysman.get("git", {}).get(g)
+            if not head: raise Fail(f"git {g}: no HEAD recorded in the system manifest")
+            if not any(g == p or g.startswith(p.rstrip("/") + "/") for p in c["drill_paths"]): continue
             env = {"PATH": "/usr/bin:/bin", "HOME": "/root", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
             r = subprocess.run(["git", "-c", f"safe.directory={target+g}", "-C", target + g, "fsck", "--no-dangling", "--no-progress"], capture_output=True, text=True, env=env)
             h = subprocess.run(["git", "-c", f"safe.directory={target+g}", "-C", target + g, "rev-parse", "HEAD"], capture_output=True, text=True, env=env).stdout.strip()

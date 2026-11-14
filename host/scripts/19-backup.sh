@@ -15,6 +15,12 @@
 #   run-backup | run-check | run-fullcheck | run-prune | run-drill
 #                   start that job through its systemd unit, wait, show its log (same path as the timer)
 #   test            failure-mode tests against a disposable repository (backup/tests/test_hostbackup.py)
+#   xrecover-beacon      cross-machine recovery test: Beacon's repository restored ON dsserver with docs/recovery.md
+#                        section 1 as written (Beacon's credentials fetched root-to-root, shredded afterwards)
+#   xrecover-on-beacon   the same in the other direction: dsserver's repository restored ON Beacon
+#   alert-drill          prove the failure path: mark integrity 'unknown' and run prune through its unit -> prune
+#                        refuses (deletes nothing), unit fails (Beszel SystemdFailed -> ntfy), Healthchecks 'fail' (e-mail)
+#   alert-drill-clear    recovery: check (integrity ok) + prune (nothing to forget yet) -> both alerts recover
 #   status | snapshots | mount-test     read-only
 set -euo pipefail
 HERE=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
@@ -24,7 +30,7 @@ SEC=/etc/dsserver-secrets/backup
 fail() { echo "FAILED: $*"; exit 1; }
 ok()   { echo "ok    $*"; }
 [ "$(id -u)" = 0 ] || fail "run as root"
-[ $# -eq 1 ] || { sed -n '2,22p' "$0"; exit 2; }
+[ $# -eq 1 ] || { sed -n '2,28p' "$0"; exit 2; }
 hb() { python3 -I "$PROG" "$@"; }
 runjob() {
     local u="hostbackup@$1.service" since; since=$(date '+%F %T')
@@ -67,8 +73,27 @@ PY
   run-prune) runjob prune ;;
   run-drill) runjob drill ;;
   test) python3 -I "$B/tests/test_hostbackup.py" ;;
+  xrecover-beacon)
+    install -d -m 0700 /root/rb
+    for f in smb.cred restic.pw; do sudo -u daniel ssh beacon "sudo cat /etc/beacon-secrets/backup/$f" | ( umask 077; cat > /root/rb/$f ); done
+    SHARE=beacon-backup REPO=beacon/restic bash "$B/recovery-test.sh" "$ROOT/docs/recovery.md" ;;
+  xrecover-on-beacon)
+    rb() { sudo -u daniel ssh beacon "$@"; }
+    rb "sudo install -d -m 0700 /root/rb && sudo install -d -m 0700 /root/rbtest"
+    for f in smb.cred restic.pw; do rb "sudo sh -c 'umask 077; cat > /root/rb/$f'" < "$SEC/$f"; done
+    rb "sudo sh -c 'cat > /root/rbtest/recovery.md'" < "$ROOT/docs/recovery.md"
+    rb "sudo sh -c 'cat > /root/rbtest/recovery-test.sh'" < "$B/recovery-test.sh"
+    rb "sudo env SHARE=server-backup REPO=dsserver/restic bash /root/rbtest/recovery-test.sh /root/rbtest/recovery.md; r=\$?; sudo rm -rf /root/rbtest; exit \$r" ;;
+  alert-drill)
+    python3 -I - <<'PY'
+import json; p = "/var/lib/hostbackup/state.json"; s = json.load(open(p)); s["integrity"] = "unknown"; json.dump(s, open(p, "w"), indent=1)
+print("info  integrity set to 'unknown' (drill): prune must refuse")
+PY
+    ( runjob prune ) || true
+    [ "$(systemctl show -p Result --value hostbackup@prune.service)" != success ] && ok "prune refused and the unit FAILED as intended: expect ntfy (Beszel dsserver SystemdFailed, within ~10 min) and a Healthchecks e-mail" || fail "prune did not fail" ;;
+  alert-drill-clear) runjob check && runjob prune ;;
   status) hb status; systemctl list-timers 'hostbackup-*' --no-pager ;;
   snapshots) hb snapshots ;;
   mount-test) hb mount-test ;;
-  *) sed -n '2,22p' "$0"; exit 2 ;;
+  *) sed -n '2,28p' "$0"; exit 2 ;;
 esac

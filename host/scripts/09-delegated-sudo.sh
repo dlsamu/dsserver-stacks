@@ -93,8 +93,10 @@ FILES=(
     backup/excludes/beacon.txt
     backup/excludes/no-axel.txt
     backup/tests/test_hostbackup.py
+    backup/recovery-test.sh
+    docs/recovery.md
 )
-EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh host/scripts/14-https-proxy.sh host/scripts/15-stockpulse.sh host/scripts/16-tunnel.sh dns/local-dns.sh dns/dnsq.py host/scripts/18-dsnas-cert.sh host/bin/dsnas-cert-push host/scripts/19-backup.sh backup/hostbackup.py backup/install-units.py backup/hc_setup.py backup/tests/test_hostbackup.py "
+EXEC_FILES=" host/scripts/07-unattended-upgrades.sh host/bin/dsserver-reboot-needed host/scripts/08-health-heartbeat.sh host/bin/dsserver-health host/scripts/10-firewall.sh host/scripts/13-beszel-agent.sh host/scripts/14-https-proxy.sh host/scripts/15-stockpulse.sh host/scripts/16-tunnel.sh dns/local-dns.sh dns/dnsq.py host/scripts/18-dsnas-cert.sh host/bin/dsnas-cert-push host/scripts/19-backup.sh backup/hostbackup.py backup/install-units.py backup/hc_setup.py backup/tests/test_hostbackup.py backup/recovery-test.sh "
 
 # Exact command lines daniel may run as root without a password.
 # A1: everything except 'rollback' (rollback stays a manual, deliberate step).
@@ -239,6 +241,10 @@ COMMANDS=(
     "host/scripts/19-backup.sh status"
     "host/scripts/19-backup.sh snapshots"
     "host/scripts/19-backup.sh mount-test"
+    "host/scripts/19-backup.sh xrecover-beacon"
+    "host/scripts/19-backup.sh xrecover-on-beacon"
+    "host/scripts/19-backup.sh alert-drill"
+    "host/scripts/19-backup.sh alert-drill-clear"
     "host/scripts/18-dsnas-cert.sh install"
     "host/scripts/18-dsnas-cert.sh status"
 )
